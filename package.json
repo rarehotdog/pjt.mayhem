@@ -1,0 +1,49 @@
+{
+  "name": "telegram-assistant",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "analytics:staging:check": "node scripts/analytics/staging-validation.mjs",
+    "telegram:dev:polling": "node --env-file=.env.local scripts/telegram/dev-polling.mjs",
+    "telegram:webhook:info": "node --env-file=.env.local scripts/telegram/webhook-smoke.mjs info",
+    "telegram:webhook:set": "node --env-file=.env.local scripts/telegram/webhook-smoke.mjs set",
+    "telegram:webhook:delete": "node --env-file=.env.local scripts/telegram/webhook-smoke.mjs delete",
+    "telegram:webhook:smoke": "node --env-file=.env.local scripts/telegram/webhook-smoke.mjs smoke",
+    "telegram:reminder:run": "node --env-file=.env.local scripts/telegram/reminder-run.mjs",
+    "telegram:ops:run": "node --env-file=.env.local scripts/telegram/ops-run.mjs",
+    "telegram:local:worker": "node --env-file=.env.local scripts/telegram/local-worker.mjs",
+    "telegram:market3h:launchd": "node --env-file=.env.local scripts/telegram/install-market3h-launchd.mjs",
+    "telegram:commands:set": "node --env-file=.env.local scripts/telegram/set-commands.mjs",
+    "telegram:profile:set": "node --env-file=.env.local scripts/telegram/set-profile.mjs",
+    "telegram:whoami": "node --env-file=.env.local scripts/telegram/whoami.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.66.0",
+    "@supabase/supabase-js": "^2.49.8",
+    "nanoid": "^5.1.5",
+    "next": "14.2.32",
+    "openai": "^6.6.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "14.2.32",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.4"
+  }
+}

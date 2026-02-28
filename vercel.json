@@ -1,0 +1,48 @@
+{
+  "crons": [
+    {
+      "path": "/api/telegram/reminder/run",
+      "schedule": "0 23 * * *"
+    },
+    {
+      "path": "/api/telegram/reminder/run",
+      "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/market_3h",
+      "schedule": "15 0 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/gmat_mba_daily",
+      "schedule": "10 0 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/finance_event_daily",
+      "schedule": "10 1 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/world_knowledge_daily",
+      "schedule": "10 12 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/hv_cycle_5d",
+      "schedule": "30 2 */5 * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/product_wbs_daily",
+      "schedule": "40 0 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/cost_guard_daily",
+      "schedule": "20 1 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/cost_guard_daily",
+      "schedule": "20 13 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/agent_retrospective_weekly",
+      "schedule": "0 11 * * 0"
+    }
+  ]
+}

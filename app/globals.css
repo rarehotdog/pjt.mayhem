@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --font-title: "Nanum Myeongjo", "AppleMyungjo", "Iowan Old Style", serif;
+  --font-body: "Pretendard", "SUIT", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at 18% 16%, rgba(255, 204, 141, 0.35), transparent 34%),
+    radial-gradient(circle at 85% 84%, rgba(122, 199, 248, 0.35), transparent 30%),
+    linear-gradient(160deg, #fff8ee 0%, #ffe9d2 48%, #ffd7bc 100%);
+  color: #14111f;
+}
+
+.main-shell {
+  width: min(100%, 430px);
+  margin: 0 auto;
+  min-height: 100vh;
+  background: rgba(255, 248, 238, 0.92);
+  border-left: 1px solid rgba(20, 17, 31, 0.12);
+  border-right: 1px solid rgba(20, 17, 31, 0.12);
+  box-shadow: 0 20px 40px rgba(20, 17, 31, 0.12);
+}
+
+.section-card {
+  border: 1px solid rgba(20, 17, 31, 0.14);
+  background: #fffdf8;
+  border-radius: 20px;
+  box-shadow: 0 10px 24px rgba(20, 17, 31, 0.08);
+}
+
+.blur-wall {
+  position: relative;
+}
+
+.blur-wall::after {
+  content: "결제 후 전체 해설 열기";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #14111f;
+  backdrop-filter: blur(6px);
+  background: rgba(255, 248, 238, 0.58);
+  border-radius: 12px;
+}
+
+.hero-title {
+  font-size: clamp(2rem, 7vw, 3rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+@media (max-width: 420px) {
+  .main-shell {
+    width: 100%;
+    border-left: 0;
+    border-right: 0;
+  }
+}
