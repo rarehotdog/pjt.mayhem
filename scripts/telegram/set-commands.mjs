@@ -1,28 +1,46 @@
 #!/usr/bin/env node
 
-const BOT_ID = process.argv[2] ?? process.env.TELEGRAM_SCRIPT_BOT_ID ?? "tyler_durden";
+const REQUESTED_BOT_ID = process.argv[2] ?? process.env.TELEGRAM_SCRIPT_BOT_ID ?? "tyler_durden";
+const BOT_ID = normalizeBotId(REQUESTED_BOT_ID);
+
+function readEnv(...keys) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function normalizeBotId(botId) {
+  return botId === "alfred_sentry" ? "michael_corleone" : botId;
+}
 
 const BOT_ENV_KEYS = {
   tyler_durden: {
-    token: process.env.TELEGRAM_BOT_COS_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN
+    token: readEnv("TELEGRAM_BOT_COS_TOKEN", "TELEGRAM_BOT_TOKEN")
   },
   zhuge_liang: {
-    token: process.env.TELEGRAM_BOT_LENS_TOKEN
+    token: readEnv("TELEGRAM_BOT_LENS_TOKEN")
   },
   jensen_huang: {
-    token: process.env.TELEGRAM_BOT_BOLT_TOKEN
+    token: readEnv("TELEGRAM_BOT_BOLT_TOKEN")
   },
   hemingway_ernest: {
-    token: process.env.TELEGRAM_BOT_INK_TOKEN
+    token: readEnv("TELEGRAM_BOT_INK_TOKEN")
   },
-  alfred_sentry: {
-    token: process.env.TELEGRAM_BOT_SENTRY_TOKEN
+  michael_corleone: {
+    token: readEnv("TELEGRAM_BOT_CORLEONE_TOKEN", "TELEGRAM_BOT_SENTRY_TOKEN")
   }
 };
 
 if (!BOT_ENV_KEYS[BOT_ID]) {
-  console.error(`[ERROR] unknown bot id: ${BOT_ID}`);
+  console.error(`[ERROR] unknown bot id: ${REQUESTED_BOT_ID}`);
   process.exit(1);
+}
+if (BOT_ID !== REQUESTED_BOT_ID) {
+  console.log(`[INFO] bot alias mapped: ${REQUESTED_BOT_ID} -> ${BOT_ID}`);
 }
 
 const BOT_TOKEN = BOT_ENV_KEYS[BOT_ID].token;

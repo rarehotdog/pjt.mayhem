@@ -8,6 +8,8 @@ describe("telegram webhook dynamic route", () => {
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
     process.env.TELEGRAM_BOT_COS_TOKEN = "cos-token";
     process.env.TELEGRAM_BOT_COS_SECRET = "correct-secret";
+    process.env.TELEGRAM_BOT_SENTRY_TOKEN = "sentry-token";
+    process.env.TELEGRAM_BOT_SENTRY_SECRET = "sentry-secret";
     process.env.TELEGRAM_ALLOWED_USER_IDS = "111";
     process.env.OPENAI_API_KEY = "openai-key";
     process.env.ANTHROPIC_API_KEY = "anthropic-key";
@@ -46,6 +48,25 @@ describe("telegram webhook dynamic route", () => {
     const response = await route.POST(request, {
       params: {
         botId: "tyler_durden"
+      }
+    });
+    expect(response.status).toBe(403);
+  });
+
+  it("accepts legacy alias bot id and resolves to canonical route", async () => {
+    const route = await import("@/app/api/telegram/webhook/[botId]/route");
+    const request = new NextRequest("http://localhost:3000/api/telegram/webhook/alfred_sentry", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Telegram-Bot-Api-Secret-Token": "wrong-secret"
+      },
+      body: JSON.stringify({ update_id: 1 })
+    });
+
+    const response = await route.POST(request, {
+      params: {
+        botId: "alfred_sentry"
       }
     });
     expect(response.status).toBe(403);

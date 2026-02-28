@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import { ensureSupabaseOrFail, fail, ok } from "@/lib/api";
+import { normalizeAssistantBotId } from "@/lib/assistant-bots";
 import { isWorkerAuthorized } from "@/lib/assistant-cron";
 import { enqueueAssistantLocalJob } from "@/lib/assistant-store";
 import { assistantLocalJobEnqueueSchema } from "@/lib/validators";
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
   try {
     const job = await enqueueAssistantLocalJob({
       flowId: parsed.data.flowId,
-      botId: parsed.data.botId,
+      botId: normalizeAssistantBotId(parsed.data.botId),
       chatId: parsed.data.chatId,
       userId: parsed.data.userId,
       threadId: parsed.data.threadId,

@@ -2,6 +2,7 @@
 
 import { nanoid } from "nanoid";
 
+import { normalizeAssistantBotId } from "@/lib/assistant-bots";
 import { getSupabaseAdmin } from "@/lib/supabase";
 import type {
   AssistantActionApproval,
@@ -31,6 +32,10 @@ function toOptionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function toCanonicalBotId(value: unknown): AssistantBotId {
+  return normalizeAssistantBotId(toOptionalString(value));
+}
+
 function toAssistantUser(row: unknown): AssistantUserRecord {
   const record = asRecord(row);
   return {
@@ -50,7 +55,7 @@ function toAssistantUser(row: unknown): AssistantUserRecord {
 function toAssistantThread(row: unknown): AssistantThreadRecord {
   const record = asRecord(row);
   return {
-    botId: (toOptionalString(record.bot_id) ?? "tyler_durden") as AssistantBotId,
+    botId: toCanonicalBotId(record.bot_id),
     threadId: String(record.thread_id),
     userId: Number(record.user_id),
     chatId: Number(record.chat_id),
@@ -65,7 +70,7 @@ function toAssistantThread(row: unknown): AssistantThreadRecord {
 function toAssistantMessage(row: unknown): AssistantMessageRecord {
   const record = asRecord(row);
   return {
-    botId: (toOptionalString(record.bot_id) ?? "tyler_durden") as AssistantBotId,
+    botId: toCanonicalBotId(record.bot_id),
     messageId: String(record.message_id),
     threadId: String(record.thread_id),
     telegramUpdateId:
@@ -85,7 +90,7 @@ function toAssistantMessage(row: unknown): AssistantMessageRecord {
 function toAssistantUpdate(row: unknown): AssistantUpdateRecord {
   const record = asRecord(row);
   return {
-    botId: (toOptionalString(record.bot_id) ?? "tyler_durden") as AssistantBotId,
+    botId: toCanonicalBotId(record.bot_id),
     updateId: Number(record.update_id),
     userId: typeof record.user_id === "number" ? Number(record.user_id) : undefined,
     chatId: typeof record.chat_id === "number" ? Number(record.chat_id) : undefined,
@@ -117,7 +122,7 @@ export interface AssistantReminderJobRecord {
 function toReminderJob(row: unknown): AssistantReminderJobRecord {
   const record = asRecord(row);
   return {
-    botId: (toOptionalString(record.bot_id) ?? "tyler_durden") as AssistantBotId,
+    botId: toCanonicalBotId(record.bot_id),
     jobId: String(record.job_id),
     userId: Number(record.user_id),
     chatId: Number(record.chat_id),
@@ -139,7 +144,7 @@ function toAssistantLocalJob(row: unknown): AssistantLocalJob {
   return {
     jobId: String(record.job_id),
     flowId: toOptionalString(record.flow_id) as AssistantLocalJob["flowId"],
-    botId: (toOptionalString(record.bot_id) ?? "tyler_durden") as AssistantBotId,
+    botId: toCanonicalBotId(record.bot_id),
     chatId: Number(record.chat_id),
     userId: typeof record.user_id === "number" ? Number(record.user_id) : undefined,
     threadId: toOptionalString(record.thread_id),
@@ -162,7 +167,7 @@ function toAssistantActionApproval(row: unknown): AssistantActionApproval {
   const record = asRecord(row);
   return {
     actionId: String(record.action_id),
-    requestedByBot: (toOptionalString(record.requested_by_bot) ?? "tyler_durden") as AssistantBotId,
+    requestedByBot: toCanonicalBotId(record.requested_by_bot),
     actionType: String(record.action_type ?? "generic"),
     payload:
       typeof record.payload === "object" && record.payload !== null
@@ -292,7 +297,7 @@ interface TouchThreadInput {
 export async function touchAssistantThread(input: TouchThreadInput): Promise<AssistantThreadRecord> {
   const supabase = getSupabaseAdmin() as any;
   const now = getNowIso();
-  const botId = input.botId ?? "tyler_durden";
+  const botId = normalizeAssistantBotId(input.botId);
 
   const { data: existing, error: existingError } = await supabase
     .from("assistant_threads")
@@ -375,7 +380,7 @@ interface AppendMessageInput {
 export async function appendAssistantMessage(input: AppendMessageInput): Promise<AssistantMessageRecord> {
   const supabase = getSupabaseAdmin() as any;
   const now = getNowIso();
-  const botId = input.botId ?? "tyler_durden";
+  const botId = normalizeAssistantBotId(input.botId);
   const { data, error } = await supabase
     .from("assistant_messages")
     .insert({
@@ -405,10 +410,11 @@ export async function listRecentAssistantMessages(
   botId: AssistantBotId = "tyler_durden"
 ): Promise<AssistantHistoryMessage[]> {
   const supabase = getSupabaseAdmin() as any;
+  const canonicalBotId = normalizeAssistantBotId(botId);
   const { data, error } = await supabase
     .from("assistant_messages")
     .select("*")
-    .eq("bot_id", botId)
+    .eq("bot_id", canonicalBotId)
     .eq("thread_id", threadId)
     .in("role", ["user", "assistant"])
     .order("created_at", { ascending: false })
@@ -454,7 +460,7 @@ export async function createReminderJobIfNotExists(input: CreateReminderJobInput
   job: AssistantReminderJobRecord;
 }> {
   const supabase = getSupabaseAdmin() as any;
-  const botId = input.botId ?? "tyler_durden";
+  const botId = normalizeAssistantBotId(input.botId);
   const existingQuery = await supabase
     .from("assistant_reminder_jobs")
     .select("*")
@@ -552,12 +558,13 @@ export async function enqueueAssistantLocalJob(
 ): Promise<AssistantLocalJob> {
   const supabase = getSupabaseAdmin() as any;
   const now = getNowIso();
+  const botId = normalizeAssistantBotId(input.botId);
   const { data, error } = await supabase
     .from("assistant_local_jobs")
     .insert({
       job_id: nanoid(18),
       flow_id: input.flowId ?? null,
-      bot_id: input.botId,
+      bot_id: botId,
       chat_id: input.chatId,
       user_id: input.userId ?? null,
       thread_id: input.threadId ?? null,
@@ -667,11 +674,12 @@ export async function createAssistantActionApproval(
 ): Promise<AssistantActionApproval> {
   const supabase = getSupabaseAdmin() as any;
   const now = getNowIso();
+  const requestedByBot = normalizeAssistantBotId(input.requestedByBot);
   const { data, error } = await supabase
     .from("assistant_action_approvals")
     .insert({
       action_id: nanoid(16),
-      requested_by_bot: input.requestedByBot,
+      requested_by_bot: requestedByBot,
       action_type: input.actionType,
       payload: input.payload,
       status: input.status ?? "pending",
@@ -749,8 +757,9 @@ export async function appendAssistantCostLog(input: {
   path: string;
 }) {
   const supabase = getSupabaseAdmin() as any;
+  const botId = normalizeAssistantBotId(input.botId);
   const { error } = await supabase.from("assistant_cost_logs").insert({
-    bot_id: input.botId,
+    bot_id: botId,
     provider: input.provider,
     model: input.model ?? null,
     tokens_in: input.tokensIn,
@@ -781,7 +790,7 @@ export async function summarizeAssistantCostsLast24h(reference = new Date()) {
   const rows = ((data ?? []) as unknown[]).map((row): AssistantCostSnapshot => {
     const record = asRecord(row);
     return {
-      botId: (toOptionalString(record.bot_id) ?? "tyler_durden") as AssistantBotId,
+      botId: toCanonicalBotId(record.bot_id),
       provider: (toOptionalString(record.provider) ?? "none") as AssistantProviderName,
       model: toOptionalString(record.model),
       tokensIn: Number(record.tokens_in ?? 0),
@@ -848,10 +857,11 @@ export function createSupabaseAssistantUpdateRepository(): AssistantUpdateReposi
   return {
     async findById(updateId: number, botId: AssistantBotId = "tyler_durden") {
       const supabase = getSupabaseAdmin() as any;
+      const canonicalBotId = normalizeAssistantBotId(botId);
       const { data, error } = await supabase
         .from("assistant_updates")
         .select("*")
-        .eq("bot_id", botId)
+        .eq("bot_id", canonicalBotId)
         .eq("update_id", updateId)
         .maybeSingle();
       if (error) {
@@ -862,10 +872,11 @@ export function createSupabaseAssistantUpdateRepository(): AssistantUpdateReposi
     async insert(input: InsertAssistantUpdateInput) {
       const supabase = getSupabaseAdmin() as any;
       const now = getNowIso();
+      const botId = normalizeAssistantBotId(input.botId);
       const { data, error } = await supabase
         .from("assistant_updates")
         .insert({
-          bot_id: input.botId ?? "tyler_durden",
+          bot_id: botId,
           update_id: input.updateId,
           user_id: input.userId ?? null,
           chat_id: input.chatId ?? null,
@@ -889,6 +900,7 @@ export function createSupabaseAssistantUpdateRepository(): AssistantUpdateReposi
       botId: AssistantBotId = "tyler_durden"
     ) {
       const supabase = getSupabaseAdmin() as any;
+      const canonicalBotId = normalizeAssistantBotId(botId);
       const payload = {
         status,
         error: error ?? null,
@@ -897,7 +909,7 @@ export function createSupabaseAssistantUpdateRepository(): AssistantUpdateReposi
       const { error: updateError } = await supabase
         .from("assistant_updates")
         .update(payload)
-        .eq("bot_id", botId)
+        .eq("bot_id", canonicalBotId)
         .eq("update_id", updateId);
       if (updateError) {
         throw updateError;
@@ -910,7 +922,7 @@ export async function reserveAssistantUpdate(
   input: InsertAssistantUpdateInput,
   repository: AssistantUpdateRepository = createSupabaseAssistantUpdateRepository()
 ): Promise<{ reserved: boolean; record: AssistantUpdateRecord }> {
-  const botId = input.botId ?? "tyler_durden";
+  const botId = normalizeAssistantBotId(input.botId);
   const existing = await repository.findById(input.updateId, botId);
   if (existing) {
     return { reserved: false, record: existing };
@@ -930,7 +942,7 @@ export async function markAssistantUpdateStatus(
   botId: AssistantBotId = "tyler_durden",
   repository: AssistantUpdateRepository = createSupabaseAssistantUpdateRepository()
 ) {
-  await repository.markStatus(updateId, status, error, botId);
+  await repository.markStatus(updateId, status, error, normalizeAssistantBotId(botId));
 }
 
 export function createInMemoryAssistantUpdateRepository(
@@ -943,11 +955,12 @@ export function createInMemoryAssistantUpdateRepository(
 
   return {
     async findById(updateId: number, botId: AssistantBotId = "tyler_durden") {
-      return map.get(`${botId}:${updateId}`) ?? null;
+      const canonicalBotId = normalizeAssistantBotId(botId);
+      return map.get(`${canonicalBotId}:${updateId}`) ?? null;
     },
     async insert(input: InsertAssistantUpdateInput) {
       const now = getNowIso();
-      const botId = input.botId ?? "tyler_durden";
+      const botId = normalizeAssistantBotId(input.botId);
       const row: AssistantUpdateRecord = {
         botId,
         updateId: input.updateId,
@@ -967,7 +980,7 @@ export function createInMemoryAssistantUpdateRepository(
       error?: string,
       botId: AssistantBotId = "tyler_durden"
     ) {
-      const key = `${botId}:${updateId}`;
+      const key = `${normalizeAssistantBotId(botId)}:${updateId}`;
       const current = map.get(key);
       if (!current) {
         return;

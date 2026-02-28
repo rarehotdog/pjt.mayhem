@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  __private_buildOpsPrompt,
   OPS_FLOW_IDS,
   buildMayhemKickoffMessage,
   buildOpsStatusMessage,
@@ -29,5 +30,14 @@ describe("assistant-ops", () => {
     const message = buildMayhemKickoffMessage("Asia/Seoul");
     expect(message).toContain("MAYHEM 회의 시작");
     expect(message).toContain("Tyler.Durden");
+  });
+
+  it("uses compact news format rules for market_3h prompt", () => {
+    const prompt = __private_buildOpsPrompt("market_3h", new Date("2026-02-28T13:35:00.000Z"), "Asia/Seoul");
+    expect(prompt).toContain("국내+해외");
+    expect(prompt).toContain("정확히 5개");
+    expect(prompt).toContain("## 🧩 뉴스 블록");
+    expect(prompt).toContain("## 📊 종합 데이터 분석 요약");
+    expect(prompt).toContain("중요도(★)");
   });
 });

@@ -4,10 +4,13 @@ import {
   __private_parseBotIdSet,
   __private_parseIdSet,
   __private_parseStringList,
+  getAssistantBotRuntimeConfig,
+  getAssistantConfig,
   isAllowlisted,
   isWebhookSecretValid,
   type AssistantConfig
 } from "@/lib/assistant-config";
+import type { AssistantCanonicalBotId } from "@/lib/assistant-types";
 
 function baseConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
   return {
@@ -32,7 +35,7 @@ function baseConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
         webhookSecret: "secret-ink",
         username: "ink"
       },
-      alfred_sentry: {
+      michael_corleone: {
         token: "token-sentry",
         webhookSecret: "secret-sentry",
         username: "sentry"
@@ -50,7 +53,7 @@ function baseConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
     localWorkerSecret: "worker-secret",
     localHeavyCharsThreshold: 520,
     localHeavyTokenThreshold: 2200,
-    localHeavyEnableBots: new Set([
+    localHeavyEnableBots: new Set<AssistantCanonicalBotId>([
       "tyler_durden",
       "zhuge_liang",
       "jensen_huang",
@@ -58,6 +61,7 @@ function baseConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
     ]),
     historyWindowCloud: 8,
     historyWindowLocal: 20,
+    newsDefaultCount: 5,
     dailyCostCapUsd: 15,
     dailyTokenCap: 250000,
     ...overrides
@@ -87,6 +91,11 @@ describe("assistant-config", () => {
     expect(Array.from(parsed)).toEqual(["zhuge_liang", "jensen_huang"]);
   });
 
+  it("normalizes legacy bot alias in local heavy allowlist", () => {
+    const parsed = __private_parseBotIdSet("alfred_sentry");
+    expect(Array.from(parsed)).toEqual(["michael_corleone"]);
+  });
+
   it("blocks requests that are not in allowlist", () => {
     expect(isAllowlisted(999, 222, baseConfig())).toBe(false);
     expect(isAllowlisted(111, 999, baseConfig())).toBe(false);
@@ -107,5 +116,48 @@ describe("assistant-config", () => {
     expect(isWebhookSecretValid("secret-cos", "tyler_durden", baseConfig())).toBe(true);
     expect(isWebhookSecretValid("secret-lens", "zhuge_liang", baseConfig())).toBe(true);
     expect(isWebhookSecretValid("wrong", "tyler_durden", baseConfig())).toBe(false);
+  });
+
+  it("prefers CORLEONE env keys and falls back to SENTRY keys", () => {
+    const backup = {
+      TELEGRAM_BOT_CORLEONE_TOKEN: process.env.TELEGRAM_BOT_CORLEONE_TOKEN,
+      TELEGRAM_BOT_CORLEONE_SECRET: process.env.TELEGRAM_BOT_CORLEONE_SECRET,
+      TELEGRAM_BOT_CORLEONE_USERNAME: process.env.TELEGRAM_BOT_CORLEONE_USERNAME,
+      TELEGRAM_BOT_SENTRY_TOKEN: process.env.TELEGRAM_BOT_SENTRY_TOKEN,
+      TELEGRAM_BOT_SENTRY_SECRET: process.env.TELEGRAM_BOT_SENTRY_SECRET,
+      TELEGRAM_BOT_SENTRY_USERNAME: process.env.TELEGRAM_BOT_SENTRY_USERNAME
+    };
+
+    try {
+      process.env.TELEGRAM_BOT_CORLEONE_TOKEN = "";
+      process.env.TELEGRAM_BOT_CORLEONE_SECRET = "";
+      process.env.TELEGRAM_BOT_CORLEONE_USERNAME = "";
+      process.env.TELEGRAM_BOT_SENTRY_TOKEN = "legacy-token";
+      process.env.TELEGRAM_BOT_SENTRY_SECRET = "legacy-secret";
+      process.env.TELEGRAM_BOT_SENTRY_USERNAME = "legacy-username";
+
+      const configFromLegacy = getAssistantConfig();
+      const fromLegacy = getAssistantBotRuntimeConfig("michael_corleone", configFromLegacy);
+      expect(fromLegacy.token).toBe("legacy-token");
+      expect(fromLegacy.webhookSecret).toBe("legacy-secret");
+      expect(fromLegacy.username).toBe("legacy-username");
+
+      process.env.TELEGRAM_BOT_CORLEONE_TOKEN = "new-token";
+      process.env.TELEGRAM_BOT_CORLEONE_SECRET = "new-secret";
+      process.env.TELEGRAM_BOT_CORLEONE_USERNAME = "new-username";
+
+      const configFromPrimary = getAssistantConfig();
+      const fromPrimary = getAssistantBotRuntimeConfig("michael_corleone", configFromPrimary);
+      expect(fromPrimary.token).toBe("new-token");
+      expect(fromPrimary.webhookSecret).toBe("new-secret");
+      expect(fromPrimary.username).toBe("new-username");
+    } finally {
+      process.env.TELEGRAM_BOT_CORLEONE_TOKEN = backup.TELEGRAM_BOT_CORLEONE_TOKEN;
+      process.env.TELEGRAM_BOT_CORLEONE_SECRET = backup.TELEGRAM_BOT_CORLEONE_SECRET;
+      process.env.TELEGRAM_BOT_CORLEONE_USERNAME = backup.TELEGRAM_BOT_CORLEONE_USERNAME;
+      process.env.TELEGRAM_BOT_SENTRY_TOKEN = backup.TELEGRAM_BOT_SENTRY_TOKEN;
+      process.env.TELEGRAM_BOT_SENTRY_SECRET = backup.TELEGRAM_BOT_SENTRY_SECRET;
+      process.env.TELEGRAM_BOT_SENTRY_USERNAME = backup.TELEGRAM_BOT_SENTRY_USERNAME;
+    }
   });
 });

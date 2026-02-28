@@ -107,6 +107,7 @@ export const assistantLocalJobEnqueueSchema = z.object({
     "zhuge_liang",
     "jensen_huang",
     "hemingway_ernest",
+    "michael_corleone",
     "alfred_sentry"
   ]),
   chatId: z.number().int(),

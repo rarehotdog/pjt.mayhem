@@ -1,5 +1,14 @@
-import { getAssistantBotDisplayName, getAssistantTeamDisplayLines } from "@/lib/assistant-bots";
+import {
+  getAssistantBotDisplayName,
+  getAssistantTeamDisplayLines,
+  normalizeAssistantBotId
+} from "@/lib/assistant-bots";
 import { getAssistantConfig, isAllowlisted, type AssistantConfig } from "@/lib/assistant-config";
+import {
+  buildCompactNewsFallback,
+  buildCompactNewsPrompt,
+  buildCompactNewsTemplate
+} from "@/lib/assistant-format";
 import { buildMayhemKickoffMessage, buildOpsStatusMessage } from "@/lib/assistant-ops";
 import {
   generateAssistantReply,
@@ -96,29 +105,95 @@ function buildStartMessage(
   ].join("\n");
 }
 
-function buildDailyBriefing(languageCode?: string | null) {
-  const cos = getAssistantBotDisplayName("tyler_durden", languageCode);
-  const lens = getAssistantBotDisplayName("zhuge_liang", languageCode);
-  const bolt = getAssistantBotDisplayName("jensen_huang", languageCode);
-  const ink = getAssistantBotDisplayName("hemingway_ernest", languageCode);
+function buildCompactBriefingPrompt(
+  kind: ReminderJobKind,
+  timezone: string,
+  newsCount: number,
+  now = new Date()
+) {
+  if (kind === "morning_plan") {
+    return buildCompactNewsPrompt({
+      title: "모닝 브리핑 (/daily)",
+      now,
+      timezone,
+      count: newsCount,
+      contextFocus: [
+        "개장 전/장중 핵심 이슈와 타임센서티브 이벤트",
+        "국내+해외 리스크온/오프 신호",
+        "당일 체크해야 할 금리/환율/원자재 포인트"
+      ]
+    });
+  }
+
+  return buildCompactNewsPrompt({
+    title: "이브닝 리뷰 (/review)",
+    now,
+    timezone,
+    count: newsCount,
+    contextFocus: [
+      "마감 후 핵심 이벤트와 다음 거래일 갭 리스크",
+      "정책/실적/지정학 헤드라인의 시장 영향",
+      "다음 날 우선 추적할 체크포인트"
+    ]
+  });
+}
+
+function buildCompactBriefingFallback(kind: ReminderJobKind, newsCount: number) {
   return [
-    `🌅 ${cos} 모닝 브리핑`,
-    "1) 오늘 핵심 결정 1개를 먼저 확정하세요.",
-    `2) ${lens}에게 필요한 검증 1개를 지정하세요.`,
-    `3) ${bolt} 기준으로 15분 액션 2개를 시작하세요.`,
-    `4) 콘텐츠가 있으면 ${ink}에게 오늘 발행 목표를 고정하세요.`
+    `⚠️ ${buildCompactNewsFallback(kind)}`,
+    "",
+    buildCompactNewsTemplate({
+      count: newsCount,
+      mix: "domestic+global"
+    })
   ].join("\n");
 }
 
-function buildEveningReview(languageCode?: string | null) {
-  const cos = getAssistantBotDisplayName("tyler_durden", languageCode);
-  const sentry = getAssistantBotDisplayName("alfred_sentry", languageCode);
-  return [
-    `🌙 ${cos} 이브닝 리뷰`,
-    "1) 완료 1개, 미완료 1개, 학습 1개를 기록하세요.",
-    "2) 미완료 항목은 내일 Top3 후보로 이동하세요.",
-    `3) ${sentry} 기준으로 리스크/비용 로그를 1줄로 남기세요.`
-  ].join("\n");
+async function buildCompactBriefingResponse(options: {
+  botId: AssistantBotId;
+  timezone: string;
+  kind: ReminderJobKind;
+}): Promise<AssistantResponsePayload> {
+  const config = getAssistantConfig();
+  const prompt = buildCompactBriefingPrompt(
+    options.kind,
+    options.timezone,
+    config.newsDefaultCount
+  );
+
+  try {
+    const result = await generateAssistantReply({
+      botId: options.botId,
+      history: [],
+      userText: prompt,
+      timezone: options.timezone,
+      maxOutputTokens: 900,
+      temperature: 0.2
+    });
+
+    return {
+      text: result.outputText,
+      provider: result.provider,
+      model: result.model,
+      metadata: {
+        fallbackFrom: result.fallbackFrom,
+        providerError: result.error,
+        tokensIn: result.tokensIn,
+        tokensOut: result.tokensOut,
+        estimatedCostUsd: result.estimatedCostUsd,
+        ...(result.metadata ?? {})
+      }
+    };
+  } catch (caught) {
+    return {
+      text: buildCompactBriefingFallback(options.kind, config.newsDefaultCount),
+      provider: "none",
+      model: "briefing-fallback",
+      metadata: {
+        error: sanitizeErrorMessage(caught)
+      }
+    };
+  }
 }
 
 function buildPanelMessage(languageCode?: string | null) {
@@ -127,7 +202,7 @@ function buildPanelMessage(languageCode?: string | null) {
     getAssistantBotDisplayName("zhuge_liang", languageCode),
     getAssistantBotDisplayName("jensen_huang", languageCode),
     getAssistantBotDisplayName("hemingway_ernest", languageCode),
-    getAssistantBotDisplayName("alfred_sentry", languageCode)
+    getAssistantBotDisplayName("michael_corleone", languageCode)
   ].join(" / ");
 
   return [
@@ -139,7 +214,7 @@ function buildPanelMessage(languageCode?: string | null) {
 }
 
 function buildSentryCheckMessage(languageCode?: string | null) {
-  const sentry = getAssistantBotDisplayName("alfred_sentry", languageCode);
+  const sentry = getAssistantBotDisplayName("michael_corleone", languageCode);
   return [
     `🛡️ ${sentry} 점검`,
     "- FACT/ASSUMPTION/TODO-VERIFY 라벨 확인",
@@ -149,7 +224,7 @@ function buildSentryCheckMessage(languageCode?: string | null) {
 }
 
 async function buildCostMessage(languageCode?: string | null) {
-  const sentry = getAssistantBotDisplayName("alfred_sentry", languageCode);
+  const sentry = getAssistantBotDisplayName("michael_corleone", languageCode);
   const config = getAssistantConfig();
   const summary = await summarizeAssistantCostsLast24h().catch(() => null);
   if (!summary) {
@@ -262,6 +337,8 @@ interface AssistantCommandInput {
 
 interface AssistantCommandDeps {
   setReminderPaused: (userId: number, paused: boolean) => Promise<unknown>;
+  buildDailyBriefing: (botId: AssistantBotId, timezone: string) => Promise<AssistantResponsePayload>;
+  buildEveningReview: (botId: AssistantBotId, timezone: string) => Promise<AssistantResponsePayload>;
   buildSummary: (
     threadId: string,
     timezone: string,
@@ -274,6 +351,18 @@ interface AssistantCommandDeps {
 
 const defaultCommandDeps: AssistantCommandDeps = {
   setReminderPaused: setAssistantReminderPaused,
+  buildDailyBriefing: async (botId, timezone) =>
+    buildCompactBriefingResponse({
+      botId,
+      timezone,
+      kind: "morning_plan"
+    }),
+  buildEveningReview: async (botId, timezone) =>
+    buildCompactBriefingResponse({
+      botId,
+      timezone,
+      kind: "evening_review"
+    }),
   buildSummary: buildSummaryResponse,
   approveAction: async (actionId, approvedBy) => {
     await updateAssistantActionApprovalStatus({
@@ -336,19 +425,11 @@ export async function executeAssistantCommand(
   }
 
   if (input.command === "/daily") {
-    return {
-      text: buildDailyBriefing(input.languageCode),
-      provider: "none",
-      model: "command"
-    };
+    return deps.buildDailyBriefing(input.botId, input.timezone);
   }
 
   if (input.command === "/review") {
-    return {
-      text: buildEveningReview(input.languageCode),
-      provider: "none",
-      model: "command"
-    };
+    return deps.buildEveningReview(input.botId, input.timezone);
   }
 
   if (input.command === "/panel") {
@@ -725,6 +806,8 @@ function shouldQueueLocalHeavy(
   config: AssistantConfig,
   hasStructuredRequest: boolean
 ) {
+  const normalizedBotId = normalizeAssistantBotId(botId);
+
   if (!config.localWorkerSecret) {
     return false;
   }
@@ -733,7 +816,7 @@ function shouldQueueLocalHeavy(
     return false;
   }
 
-  if (!config.localHeavyEnableBots.has(botId)) {
+  if (!config.localHeavyEnableBots.has(normalizedBotId)) {
     return false;
   }
 
@@ -782,15 +865,16 @@ export async function processTelegramUpdate(
   source: AssistantUpdateSource = "webhook",
   botId: AssistantBotId = "tyler_durden"
 ) {
+  const normalizedBotId = normalizeAssistantBotId(botId);
   const config = getAssistantConfig();
-  const runtimeBot = config.telegramBots[botId];
+  const runtimeBot = config.telegramBots[normalizedBotId];
   const message = update.message ?? update.edited_message;
   const text = message?.text?.trim();
   const userId = message?.from?.id;
   const chatId = message?.chat?.id;
 
   const reserved = await reserveAssistantUpdate({
-    botId,
+    botId: normalizedBotId,
     updateId: update.update_id,
     source,
     userId,
@@ -805,7 +889,7 @@ export async function processTelegramUpdate(
   }
 
   if (!message || !text || !userId || !chatId) {
-    await markAssistantUpdateStatus(update.update_id, "ignored", undefined, botId);
+    await markAssistantUpdateStatus(update.update_id, "ignored", undefined, normalizedBotId);
     return {
       status: "ignored",
       reason: "unsupported_update"
@@ -813,19 +897,29 @@ export async function processTelegramUpdate(
   }
 
   const internalBotSource = isInternalBotMessage(message.from, config);
-  if (internalBotSource && botId === "tyler_durden") {
-    await markAssistantUpdateStatus(update.update_id, "ignored", "internal_bot_source", botId);
+  if (internalBotSource && normalizedBotId === "tyler_durden") {
+    await markAssistantUpdateStatus(
+      update.update_id,
+      "ignored",
+      "internal_bot_source",
+      normalizedBotId
+    );
     return {
       status: "ignored",
       reason: "internal_bot_source"
     };
   }
 
-  if (!isPrivateChat(message.chat.type) && botId !== "tyler_durden") {
+  if (!isPrivateChat(message.chat.type) && normalizedBotId !== "tyler_durden") {
     const isCommand = text.startsWith("/");
     const mentioned = isMentioned(text, runtimeBot.username);
     if (!isCommand && !mentioned) {
-      await markAssistantUpdateStatus(update.update_id, "ignored", "group_not_mentioned", botId);
+      await markAssistantUpdateStatus(
+        update.update_id,
+        "ignored",
+        "group_not_mentioned",
+        normalizedBotId
+      );
       return {
         status: "ignored",
         reason: "group_not_mentioned"
@@ -836,7 +930,12 @@ export async function processTelegramUpdate(
   const allowlisted = isAllowlisted(userId, chatId, config);
   const internalBotAllowed = internalBotSource && isInternalBotAllowedInChat(chatId, config);
   if (!allowlisted && !internalBotAllowed) {
-    await markAssistantUpdateStatus(update.update_id, "blocked", "allowlist_blocked", botId);
+    await markAssistantUpdateStatus(
+      update.update_id,
+      "blocked",
+      "allowlist_blocked",
+      normalizedBotId
+    );
     return {
       status: "blocked"
     };
@@ -844,18 +943,18 @@ export async function processTelegramUpdate(
 
   if (!internalBotSource && isRateLimited(userId, config.rateLimitPerMinute)) {
     await sendTelegramMessage({
-      botId,
+      botId: normalizedBotId,
       chatId,
       text: "요청이 너무 빠르게 들어오고 있어요. 잠시 후 다시 시도해 주세요.",
       replyToMessageId: message.message_id
     });
-    await markAssistantUpdateStatus(update.update_id, "rate_limited", undefined, botId);
+    await markAssistantUpdateStatus(update.update_id, "rate_limited", undefined, normalizedBotId);
     return {
       status: "rate_limited"
     };
   }
 
-  const threadId = buildThreadId(chatId, botId);
+  const threadId = buildThreadId(chatId, normalizedBotId);
 
   try {
     const user = await upsertAssistantUser({
@@ -868,17 +967,21 @@ export async function processTelegramUpdate(
     });
 
     await touchAssistantThread({
-      botId,
+      botId: normalizedBotId,
       threadId,
       userId: user.userId,
       chatId: user.chatId,
       locale: user.languageCode
     });
 
-    const history = await listRecentAssistantMessages(threadId, config.historyWindowLocal, botId);
+    const history = await listRecentAssistantMessages(
+      threadId,
+      config.historyWindowLocal,
+      normalizedBotId
+    );
     const historyForCloud = history.slice(-config.historyWindowCloud);
     await appendAssistantMessage({
-      botId,
+      botId: normalizedBotId,
       threadId,
       role: "user",
       content: text,
@@ -900,7 +1003,7 @@ export async function processTelegramUpdate(
     if (text.startsWith("/")) {
       const command = normalizeCommand(text);
       responsePayload = await executeAssistantCommand({
-        botId,
+        botId: normalizedBotId,
         command,
         rawText: text,
         userId,
@@ -912,13 +1015,13 @@ export async function processTelegramUpdate(
       status = commandToStatus(command);
     } else {
       const structuredRequested = requestsStructuredOutput(text);
-      const queueLocal = shouldQueueLocalHeavy(botId, text, config, structuredRequested);
+      const queueLocal = shouldQueueLocalHeavy(normalizedBotId, text, config, structuredRequested);
       let queuedLocal = false;
 
       if (queueLocal) {
         try {
           const job = await enqueueAssistantLocalJob({
-            botId,
+            botId: normalizedBotId,
             chatId,
             userId,
             threadId,
@@ -956,7 +1059,7 @@ export async function processTelegramUpdate(
         if (actionType) {
           try {
             const action = await createAssistantActionApproval({
-              requestedByBot: botId,
+              requestedByBot: normalizedBotId,
               actionType,
               payload: {
                 chatId,
@@ -976,7 +1079,7 @@ export async function processTelegramUpdate(
         }
 
         const chatResponse = await buildChatResponse({
-          botId,
+          botId: normalizedBotId,
           history: historyForCloud,
           userText: pendingActionId
             ? `${text}\n\n[시스템] 외부행동은 승인 전 실행 금지. action_id=${pendingActionId}`
@@ -985,7 +1088,7 @@ export async function processTelegramUpdate(
         });
 
         responsePayload = chatResponse;
-        if (botId === "zhuge_liang" && !structuredRequested) {
+        if (normalizedBotId === "zhuge_liang" && !structuredRequested) {
           responsePayload = {
             ...responsePayload,
             text: formatLensJsonToPlainText(responsePayload.text)
@@ -1003,7 +1106,7 @@ export async function processTelegramUpdate(
           };
         }
 
-        if (!isPrivateChat(message.chat.type) && botId === "tyler_durden") {
+        if (!isPrivateChat(message.chat.type) && normalizedBotId === "tyler_durden") {
           const now = Date.now();
           const roundKey = maybeCreateRoundKey(text);
           const previousRoundKey = groupPanelRoundDedupByChat.get(chatId);
@@ -1031,14 +1134,14 @@ export async function processTelegramUpdate(
     }
 
     await sendTelegramMessage({
-      botId,
+      botId: normalizedBotId,
       chatId,
       text: responsePayload.text,
       replyToMessageId: message.message_id
     });
 
     await appendAssistantMessage({
-      botId,
+      botId: normalizedBotId,
       threadId,
       role: "assistant",
       content: responsePayload.text,
@@ -1050,7 +1153,7 @@ export async function processTelegramUpdate(
 
     if (responsePayload.provider !== "none") {
       await appendAssistantCostLog({
-        botId,
+        botId: normalizedBotId,
         provider: responsePayload.provider,
         model: responsePayload.model,
         tokensIn: Number((responsePayload.metadata?.tokensIn as number | undefined) ?? 0),
@@ -1060,7 +1163,7 @@ export async function processTelegramUpdate(
       }).catch(() => undefined);
     }
 
-    await markAssistantUpdateStatus(update.update_id, status, undefined, botId);
+    await markAssistantUpdateStatus(update.update_id, status, undefined, normalizedBotId);
     return {
       status,
       provider: responsePayload.provider
@@ -1069,7 +1172,7 @@ export async function processTelegramUpdate(
     const error = sanitizeErrorMessage(caught);
 
     await appendAssistantMessage({
-      botId,
+      botId: normalizedBotId,
       threadId,
       role: "assistant",
       content: FALLBACK_REPLY,
@@ -1082,13 +1185,13 @@ export async function processTelegramUpdate(
     }).catch(() => undefined);
 
     await sendTelegramMessage({
-      botId,
+      botId: normalizedBotId,
       chatId,
       text: FALLBACK_REPLY,
       replyToMessageId: message.message_id
     }).catch(() => undefined);
 
-    await markAssistantUpdateStatus(update.update_id, "failed", error, botId);
+    await markAssistantUpdateStatus(update.update_id, "failed", error, normalizedBotId);
     return {
       status: "failed",
       error
@@ -1111,12 +1214,45 @@ export async function runReminderBatch(options?: {
   source?: string;
 }) {
   const config = getAssistantConfig();
-  const botId = options?.botId ?? "tyler_durden";
+  const botId = normalizeAssistantBotId(options?.botId);
   const now = options?.now ?? new Date();
   const local = getLocalDateParts(config.assistantTimezone, now);
   const kind = resolveReminderKind(options?.kind, config.assistantTimezone, now);
   const scheduleDate = local.dateKey;
   const targets = await listReminderTargets();
+  const reminderPrompt = buildCompactBriefingPrompt(
+    kind,
+    config.assistantTimezone,
+    config.newsDefaultCount,
+    now
+  );
+
+  let sharedReminderText: string | null = null;
+  try {
+    const generated = await generateAssistantReply({
+      botId,
+      history: [],
+      userText: reminderPrompt,
+      timezone: config.assistantTimezone,
+      maxOutputTokens: 900,
+      temperature: 0.2
+    });
+    sharedReminderText = generated.outputText;
+
+    if (generated.provider !== "none") {
+      await appendAssistantCostLog({
+        botId,
+        provider: generated.provider,
+        model: generated.model,
+        tokensIn: generated.tokensIn ?? 0,
+        tokensOut: generated.tokensOut ?? 0,
+        estimatedCostUsd: generated.estimatedCostUsd ?? 0,
+        path: `reminder:${kind}`
+      }).catch(() => undefined);
+    }
+  } catch {
+    sharedReminderText = null;
+  }
 
   let sent = 0;
   let skipped = 0;
@@ -1164,7 +1300,7 @@ export async function runReminderBatch(options?: {
       await sendTelegramMessage({
         botId,
         chatId: user.chatId,
-        text: buildReminderMessage(kind, user.firstName),
+        text: sharedReminderText ?? buildReminderMessage(kind, user.firstName),
         disableNotification: kind === "morning_plan"
       });
 
@@ -1217,4 +1353,13 @@ export function __private_shouldQueueLocalHeavy(
   hasStructuredRequest: boolean
 ) {
   return shouldQueueLocalHeavy(botId, text, config, hasStructuredRequest);
+}
+
+export function __private_buildCompactBriefingPrompt(
+  kind: ReminderJobKind,
+  timezone: string,
+  newsCount: number,
+  now = new Date()
+) {
+  return buildCompactBriefingPrompt(kind, timezone, newsCount, now);
 }

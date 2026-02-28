@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000"),
   title: "Tyler Telegram Assistant",
   description:
-    "Telegram 5-bot orchestration backend (Tyler.Durden, LENS, BOLT, INK, SENTRY).",
+    "Telegram 5-bot orchestration backend (Tyler.Durden, LENS, BOLT, INK, Michael Corleone/SENTRY).",
   icons: {
     icon: "/icon-192.svg",
     apple: "/icon-192.svg"

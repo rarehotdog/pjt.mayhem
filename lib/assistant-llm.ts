@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import OpenAI from "openai";
 
 import type { AssistantBotId } from "@/lib/assistant-types";
+import { normalizeAssistantBotId } from "@/lib/assistant-bots";
 import { getAssistantConfig } from "@/lib/assistant-config";
 import type {
   AssistantHistoryMessage,
@@ -44,7 +45,9 @@ export interface AssistantLlmRunner {
 }
 
 function buildRolePrompt(botId: AssistantBotId) {
-  if (botId === "zhuge_liang") {
+  const normalizedBotId = normalizeAssistantBotId(botId);
+
+  if (normalizedBotId === "zhuge_liang") {
     return [
       "당신은 제갈량(LENS)입니다. 근거 중심으로 짧고 명확하게 답합니다.",
       "핵심 결론 1줄, 근거 2~3줄, 바로 할 다음 행동 1~2줄로 정리합니다.",
@@ -53,23 +56,23 @@ function buildRolePrompt(botId: AssistantBotId) {
     ].join("\n");
   }
 
-  if (botId === "jensen_huang") {
+  if (normalizedBotId === "jensen_huang") {
     return [
       "당신은 Jensen Huang(BOLT)입니다. 실행/마감 중심으로 답합니다.",
       "항상 지금 15분 액션과 오늘 마감 기준(DoD)을 포함합니다."
     ].join("\n");
   }
 
-  if (botId === "hemingway_ernest") {
+  if (normalizedBotId === "hemingway_ernest") {
     return [
       "당신은 Hemingway, Ernest(INK)입니다. 콘텐츠 훅과 구조를 명확하게 제시합니다.",
       "짧은 문장, 강한 첫 문장, 마지막 CTA를 우선합니다."
     ].join("\n");
   }
 
-  if (botId === "alfred_sentry") {
+  if (normalizedBotId === "michael_corleone") {
     return [
-      "당신은 Alfred.Sentry(SENTRY)입니다. 리스크/보안/비용 관점으로 검토합니다.",
+      "당신은 Michael Corleone(SENTRY)입니다. 리스크/보안/비용 관점으로 검토합니다.",
       "지적만 하지 말고 항상 대안을 함께 제시합니다."
     ].join("\n");
   }

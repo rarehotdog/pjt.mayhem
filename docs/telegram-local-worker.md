@@ -14,6 +14,8 @@
 - History windows are split by path:
   - cloud: `ASSISTANT_HISTORY_WINDOW_CLOUD`
   - local: `ASSISTANT_HISTORY_WINDOW_LOCAL`
+- Compact news default count:
+  - `ASSISTANT_NEWS_DEFAULT_COUNT` (default `5`)
 
 ## 2) launchd install (every 3 hours)
 Cloud mode install (default):
@@ -69,3 +71,10 @@ Local queue:
 ```bash
 cd '/Users/taehyeonkim/Documents/New project/apps/telegram-assistant' && npm run telegram:ops:run -- market_3h local_queue && npm run telegram:local:worker -- --once
 ```
+
+## 5) SENTRY bot canonical id
+- Canonical bot id is `michael_corleone`.
+- Legacy alias `alfred_sentry` is still accepted and normalized internally during phase-1 migration.
+- Env key migration:
+  - primary: `TELEGRAM_BOT_CORLEONE_*`
+  - fallback: `TELEGRAM_BOT_SENTRY_*`

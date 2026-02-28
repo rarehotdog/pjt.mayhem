@@ -1,20 +1,38 @@
 #!/usr/bin/env node
 
-const BOT_ID = process.argv[2] ?? process.env.TELEGRAM_SCRIPT_BOT_ID ?? "tyler_durden";
+const REQUESTED_BOT_ID = process.argv[2] ?? process.env.TELEGRAM_SCRIPT_BOT_ID ?? "tyler_durden";
+const BOT_ID = normalizeBotId(REQUESTED_BOT_ID);
 const OFFSET = Number(process.env.TELEGRAM_WHOAMI_OFFSET ?? "0");
 
+function readEnv(...keys) {
+  for (const key of keys) {
+    const value = process.env[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function normalizeBotId(botId) {
+  return botId === "alfred_sentry" ? "michael_corleone" : botId;
+}
+
 const BOT_RUNTIME = {
-  tyler_durden: process.env.TELEGRAM_BOT_COS_TOKEN ?? process.env.TELEGRAM_BOT_TOKEN,
-  zhuge_liang: process.env.TELEGRAM_BOT_LENS_TOKEN,
-  jensen_huang: process.env.TELEGRAM_BOT_BOLT_TOKEN,
-  hemingway_ernest: process.env.TELEGRAM_BOT_INK_TOKEN,
-  alfred_sentry: process.env.TELEGRAM_BOT_SENTRY_TOKEN
+  tyler_durden: readEnv("TELEGRAM_BOT_COS_TOKEN", "TELEGRAM_BOT_TOKEN"),
+  zhuge_liang: readEnv("TELEGRAM_BOT_LENS_TOKEN"),
+  jensen_huang: readEnv("TELEGRAM_BOT_BOLT_TOKEN"),
+  hemingway_ernest: readEnv("TELEGRAM_BOT_INK_TOKEN"),
+  michael_corleone: readEnv("TELEGRAM_BOT_CORLEONE_TOKEN", "TELEGRAM_BOT_SENTRY_TOKEN")
 };
 
 const BOT_TOKEN = BOT_RUNTIME[BOT_ID];
 if (!BOT_TOKEN) {
-  console.error(`[ERROR] bot token is missing for ${BOT_ID}`);
+  console.error(`[ERROR] bot token is missing for ${REQUESTED_BOT_ID}`);
   process.exit(1);
+}
+if (BOT_ID !== REQUESTED_BOT_ID) {
+  console.log(`[INFO] bot alias mapped: ${REQUESTED_BOT_ID} -> ${BOT_ID}`);
 }
 
 const TELEGRAM_API_BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;

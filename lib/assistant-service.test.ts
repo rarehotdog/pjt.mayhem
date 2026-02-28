@@ -1,16 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  __private_buildCompactBriefingPrompt,
   __private_formatLensJsonToPlainText,
   __private_requestsStructuredOutput,
   __private_shouldQueueLocalHeavy,
   executeAssistantCommand
 } from "@/lib/assistant-service";
 import type { AssistantConfig } from "@/lib/assistant-config";
+import type { AssistantCanonicalBotId } from "@/lib/assistant-types";
 
 function buildDeps() {
   return {
     setReminderPaused: vi.fn(async () => undefined),
+    buildDailyBriefing: vi.fn(async () => ({
+      text: "## 🧩 뉴스 블록\n✅ 뉴스 1 / 출처 (중요도: ★★★★☆)\n• 주요 내용 1\n• 주요 내용 2\n• 주요 내용 3\n\n## 📊 종합 데이터 분석 요약",
+      provider: "none" as const,
+      model: "command"
+    })),
+    buildEveningReview: vi.fn(async () => ({
+      text: "## 🧩 뉴스 블록\n✅ 뉴스 1 / 출처 (중요도: ★★★★☆)\n• 주요 내용 1\n• 주요 내용 2\n• 주요 내용 3\n\n## 📊 종합 데이터 분석 요약",
+      provider: "none" as const,
+      model: "command"
+    })),
     buildSummary: vi.fn(async () => ({
       text: "요약 결과",
       provider: "none" as const,
@@ -45,7 +57,7 @@ function buildConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig 
         webhookSecret: "secret-ink",
         username: "ink"
       },
-      alfred_sentry: {
+      michael_corleone: {
         token: "token-sentry",
         webhookSecret: "secret-sentry",
         username: "sentry"
@@ -64,7 +76,7 @@ function buildConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig 
     localWorkerSecret: "worker-secret",
     localHeavyCharsThreshold: 520,
     localHeavyTokenThreshold: 2200,
-    localHeavyEnableBots: new Set([
+    localHeavyEnableBots: new Set<AssistantCanonicalBotId>([
       "tyler_durden",
       "zhuge_liang",
       "jensen_huang",
@@ -72,6 +84,7 @@ function buildConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig 
     ]),
     historyWindowCloud: 8,
     historyWindowLocal: 20,
+    newsDefaultCount: 5,
     dailyCostCapUsd: 15,
     dailyTokenCap: 250000,
     ...overrides
@@ -149,6 +162,58 @@ describe("assistant commands", () => {
 
     expect(result.text).toContain("SENTRY");
     expect(result.text).not.toContain("GUARD");
+  });
+
+  it("/daily uses compact news format", async () => {
+    const deps = buildDeps();
+    const result = await executeAssistantCommand(
+      {
+        botId: "tyler_durden",
+        command: "/daily",
+        rawText: "/daily",
+        userId: 123,
+        threadId: "telegram:1",
+        timezone: "Asia/Seoul",
+        languageCode: "ko-KR"
+      },
+      deps
+    );
+
+    expect(deps.buildDailyBriefing).toHaveBeenCalledWith("tyler_durden", "Asia/Seoul");
+    expect(result.text).toContain("뉴스 블록");
+    expect(result.text).toContain("종합 데이터 분석 요약");
+  });
+
+  it("/review uses compact news format", async () => {
+    const deps = buildDeps();
+    const result = await executeAssistantCommand(
+      {
+        botId: "tyler_durden",
+        command: "/review",
+        rawText: "/review",
+        userId: 123,
+        threadId: "telegram:1",
+        timezone: "Asia/Seoul",
+        languageCode: "ko-KR"
+      },
+      deps
+    );
+
+    expect(deps.buildEveningReview).toHaveBeenCalledWith("tyler_durden", "Asia/Seoul");
+    expect(result.text).toContain("뉴스 블록");
+    expect(result.text).toContain("종합 데이터 분석 요약");
+  });
+
+  it("builds fixed compact prompt with default 5 news items", () => {
+    const prompt = __private_buildCompactBriefingPrompt(
+      "morning_plan",
+      "Asia/Seoul",
+      5,
+      new Date("2026-02-28T13:35:00.000Z")
+    );
+    expect(prompt).toContain("정확히 5개");
+    expect(prompt).toContain("국내+해외");
+    expect(prompt).toContain("종합 데이터 분석 요약");
   });
 
   it("/ops shows automation flow list", async () => {
@@ -252,7 +317,7 @@ describe("assistant commands", () => {
 
   it("respects local heavy bot allowlist", () => {
     const config = buildConfig({
-      localHeavyEnableBots: new Set(["zhuge_liang"])
+      localHeavyEnableBots: new Set<AssistantCanonicalBotId>(["zhuge_liang"])
     });
     const result = __private_shouldQueueLocalHeavy(
       "alfred_sentry",

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 
-import { isAssistantBotId } from "@/lib/assistant-bots";
+import { isAssistantBotId, normalizeAssistantBotId } from "@/lib/assistant-bots";
 import {
   getAssistantMissingConfigKeys,
   isAssistantConfigured,
@@ -35,7 +35,7 @@ export async function POST(
       botId: rawBotId
     });
   }
-  const botId = rawBotId as AssistantBotId;
+  const botId = normalizeAssistantBotId(rawBotId) as AssistantBotId;
 
   if (!isAssistantConfigured(undefined, { botId })) {
     return fail("assistant config missing", 503, {
@@ -57,6 +57,7 @@ export async function POST(
     const result = await processTelegramUpdate(payload, "webhook", botId);
     return ok({
       ok: true,
+      requestedBotId: rawBotId,
       botId,
       result
     });
@@ -72,6 +73,7 @@ export async function POST(
             }
           })();
     return fail("telegram webhook processing failed", 500, {
+      requestedBotId: rawBotId,
       botId,
       message
     });

@@ -1,5 +1,6 @@
 import type { ReminderJobKind } from "@/lib/assistant-types";
 import type { AssistantBotId } from "@/lib/assistant-types";
+import { normalizeAssistantBotId } from "@/lib/assistant-bots";
 
 const TOKEN_PATTERNS = [
   /sk-[a-zA-Z0-9_-]+/g,
@@ -10,7 +11,7 @@ const TOKEN_PATTERNS = [
 ];
 
 export function buildThreadId(chatId: number, botId: AssistantBotId = "tyler_durden"): string {
-  return `telegram:${botId}:${chatId}`;
+  return `telegram:${normalizeAssistantBotId(botId)}:${chatId}`;
 }
 
 export function sanitizeErrorMessage(input: unknown): string {

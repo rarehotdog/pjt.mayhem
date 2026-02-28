@@ -1,5 +1,6 @@
-import { getAssistantBotDisplayName } from "@/lib/assistant-bots";
+import { getAssistantBotDisplayName, normalizeAssistantBotId } from "@/lib/assistant-bots";
 import { getAssistantConfig } from "@/lib/assistant-config";
+import { buildCompactNewsPrompt } from "@/lib/assistant-format";
 import { generateAssistantReply } from "@/lib/assistant-llm";
 import { appendAssistantCostLog, enqueueAssistantLocalJob } from "@/lib/assistant-store";
 import { sendTelegramMessage } from "@/lib/telegram";
@@ -70,14 +71,14 @@ const OPS_FLOW_SPECS: Record<OpsFlowId, OpsFlowSpec> = {
   },
   cost_guard_daily: {
     id: "cost_guard_daily",
-    ownerBotId: "alfred_sentry",
+    ownerBotId: "michael_corleone",
     title: "토큰 비용 가드 점검",
     cadence: "Twice daily (Vercel cron)",
     purpose: "비용/호출량/중복 호출 리스크 점검"
   },
   agent_retrospective_weekly: {
     id: "agent_retrospective_weekly",
-    ownerBotId: "alfred_sentry",
+    ownerBotId: "michael_corleone",
     title: "에이전트 자가개선 회고",
     cadence: "Weekly (Vercel cron)",
     purpose: "주간 오작동/개선안 정리"
@@ -101,6 +102,22 @@ function pad2(value: number) {
 }
 
 function buildOpsPrompt(flow: OpsFlowId, now: Date, timezone: string) {
+  const config = getAssistantConfig();
+  if (flow === "market_3h") {
+    return buildCompactNewsPrompt({
+      title: "시장/국제 뉴스 3시간 브리핑",
+      now,
+      timezone,
+      count: config.newsDefaultCount,
+      contextFocus: [
+        "국내+해외 시장 이슈를 균형 있게 선정",
+        "지수/금리/환율/원자재 변동의 리스크온·오프 신호 정리",
+        "이번 주말~다음 거래일 헤드라인 리스크 점검",
+        "마지막 종합 정리는 시장 시사점 중심으로 압축"
+      ]
+    });
+  }
+
   const local = getLocalDateParts(timezone, now);
   const slot = `${local.dateKey} ${pad2(local.hour)}:${pad2(local.minute)} ${timezone}`;
 
@@ -160,7 +177,7 @@ function buildOpsHeader(flow: OpsFlowId, now: Date, timezone: string) {
 
 function getMention(botId: AssistantBotId): string {
   const config = getAssistantConfig();
-  const username = config.telegramBots[botId]?.username;
+  const username = config.telegramBots[normalizeAssistantBotId(botId)]?.username;
   return username ? `@${username}` : getAssistantBotDisplayName(botId);
 }
 
@@ -194,7 +211,7 @@ export function buildMayhemKickoffMessage(timezone: string) {
     `${getMention("zhuge_liang")} : GMAT/MBA + 시장 핵심 업데이트 5줄`,
     `${getMention("jensen_huang")} : 오늘 실행 태스크 3개(DoD 포함)`,
     `${getMention("hemingway_ernest")} : 발행 주제/훅/CTA 1세트`,
-    `${getMention("alfred_sentry")} : 비용/리스크 경고 2개 + 차단안 1개`,
+    `${getMention("michael_corleone")} : 비용/리스크 경고 2개 + 차단안 1개`,
     "Tyler.Durden이 최종 결정 1개 + 액션 3개로 마감합니다."
   ].join("\n");
 }
@@ -278,13 +295,17 @@ export async function runOpsFlow(options: {
 
   return {
     ok: true,
-      flow: flow.id,
-      ownerBotId: flow.ownerBotId,
-      chatId,
-      provider: response.provider,
-      model: response.model,
-      dispatchMode: mode,
-      source: options.source ?? "ops_endpoint",
-      sentAt: new Date().toISOString()
-    };
+    flow: flow.id,
+    ownerBotId: flow.ownerBotId,
+    chatId,
+    provider: response.provider,
+    model: response.model,
+    dispatchMode: mode,
+    source: options.source ?? "ops_endpoint",
+    sentAt: new Date().toISOString()
+  };
+}
+
+export function __private_buildOpsPrompt(flow: OpsFlowId, now: Date, timezone: string) {
+  return buildOpsPrompt(flow, now, timezone);
 }

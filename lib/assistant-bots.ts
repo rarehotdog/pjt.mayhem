@@ -1,21 +1,30 @@
-import type { AssistantBotId } from "@/lib/assistant-types";
+import type { AssistantBotId, AssistantCanonicalBotId } from "@/lib/assistant-types";
 
-export const ASSISTANT_BOT_IDS: AssistantBotId[] = [
+export const ASSISTANT_BOT_IDS: AssistantCanonicalBotId[] = [
   "tyler_durden",
   "zhuge_liang",
   "jensen_huang",
   "hemingway_ernest",
-  "alfred_sentry"
+  "michael_corleone"
 ];
 
 export interface AssistantBotProfile {
-  id: AssistantBotId;
+  id: AssistantCanonicalBotId;
   displayName: string;
   fallbackDisplayName?: string;
   roleLabel: string;
 }
 
-const BOT_PROFILES: Record<AssistantBotId, AssistantBotProfile> = {
+const BOT_ALIAS_TO_CANONICAL: Record<AssistantBotId, AssistantCanonicalBotId> = {
+  tyler_durden: "tyler_durden",
+  zhuge_liang: "zhuge_liang",
+  jensen_huang: "jensen_huang",
+  hemingway_ernest: "hemingway_ernest",
+  michael_corleone: "michael_corleone",
+  alfred_sentry: "michael_corleone"
+};
+
+const BOT_PROFILES: Record<AssistantCanonicalBotId, AssistantBotProfile> = {
   tyler_durden: {
     id: "tyler_durden",
     displayName: "Tyler.Durden",
@@ -37,26 +46,36 @@ const BOT_PROFILES: Record<AssistantBotId, AssistantBotProfile> = {
     displayName: "Hemingway, Ernest",
     roleLabel: "INK 콘텐츠/바이럴"
   },
-  alfred_sentry: {
-    id: "alfred_sentry",
-    displayName: "Alfred.Sentry",
+  michael_corleone: {
+    id: "michael_corleone",
+    displayName: "Michael Corleone",
     roleLabel: "SENTRY QA/보안/비용"
   }
 };
 
 export function isAssistantBotId(value: string | null | undefined): value is AssistantBotId {
-  return Boolean(value && ASSISTANT_BOT_IDS.includes(value as AssistantBotId));
+  return Boolean(value && Object.prototype.hasOwnProperty.call(BOT_ALIAS_TO_CANONICAL, value));
+}
+
+export function normalizeAssistantBotId(
+  value: string | null | undefined,
+  fallback: AssistantCanonicalBotId = "tyler_durden"
+): AssistantCanonicalBotId {
+  if (!isAssistantBotId(value)) {
+    return fallback;
+  }
+  return BOT_ALIAS_TO_CANONICAL[value];
 }
 
 export function resolveAssistantBotId(
   value: string | null | undefined,
-  fallback: AssistantBotId = "tyler_durden"
-): AssistantBotId {
-  return isAssistantBotId(value) ? value : fallback;
+  fallback: AssistantCanonicalBotId = "tyler_durden"
+): AssistantCanonicalBotId {
+  return normalizeAssistantBotId(value, fallback);
 }
 
 export function getAssistantBotProfile(botId: AssistantBotId): AssistantBotProfile {
-  return BOT_PROFILES[botId];
+  return BOT_PROFILES[normalizeAssistantBotId(botId)];
 }
 
 export function getAssistantBotDisplayName(

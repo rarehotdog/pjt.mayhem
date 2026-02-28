@@ -4,6 +4,7 @@ import {
   getAssistantBotDisplayName,
   getAssistantBotProfile,
   isAssistantBotId,
+  normalizeAssistantBotId,
   resolveAssistantBotId
 } from "@/lib/assistant-bots";
 
@@ -14,6 +15,8 @@ describe("assistant bot profiles", () => {
 
   it("validates known bot ids", () => {
     expect(isAssistantBotId("hemingway_ernest")).toBe(true);
+    expect(isAssistantBotId("michael_corleone")).toBe(true);
+    expect(isAssistantBotId("alfred_sentry")).toBe(true);
     expect(isAssistantBotId("")).toBe(false);
   });
 
@@ -25,7 +28,9 @@ describe("assistant bot profiles", () => {
     expect(getAssistantBotDisplayName("zhuge_liang", "en-US")).toBe("Zhuge Liang");
   });
 
-  it("keeps SENTRY naming", () => {
+  it("maps legacy alias to michael corleone", () => {
+    expect(normalizeAssistantBotId("alfred_sentry")).toBe("michael_corleone");
+    expect(getAssistantBotDisplayName("alfred_sentry")).toBe("Michael Corleone");
     expect(getAssistantBotProfile("alfred_sentry").roleLabel).toContain("SENTRY");
   });
 });

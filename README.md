@@ -8,7 +8,10 @@ It is intentionally separated from `apps/unmyeong-snap` (2030 viral app).
 - 제갈량 / Zhuge Liang (LENS)
 - Jensen Huang (BOLT)
 - Hemingway, Ernest (INK)
-- Alfred.Sentry (SENTRY)
+- Michael Corleone (SENTRY)
+
+Legacy alias (phase-1 compatibility):
+- `alfred_sentry` is accepted as input and normalized to canonical `michael_corleone`
 
 ## Main APIs
 - `POST /api/telegram/webhook/[botId]`
@@ -20,6 +23,10 @@ It is intentionally separated from `apps/unmyeong-snap` (2030 viral app).
 - `POST /api/assistant/local-jobs/complete`
 - `POST /api/assistant/actions/approve`
 - `POST /api/assistant/actions/reject`
+
+Webhook botId:
+- canonical: `/api/telegram/webhook/michael_corleone`
+- legacy alias: `/api/telegram/webhook/alfred_sentry` (internally normalized)
 
 ## Run
 ```bash
@@ -40,6 +47,10 @@ npm run dev
 
 Use `.env.example` as template.
 
+SENTRY bot env migration (phase-1):
+- primary: `TELEGRAM_BOT_CORLEONE_TOKEN`, `TELEGRAM_BOT_CORLEONE_SECRET`, `TELEGRAM_BOT_CORLEONE_USERNAME`
+- fallback: `TELEGRAM_BOT_SENTRY_TOKEN`, `TELEGRAM_BOT_SENTRY_SECRET`, `TELEGRAM_BOT_SENTRY_USERNAME`
+
 ## OpenAI Auth Note
 - OpenAI API uses API key auth (`OPENAI_API_KEY`).
 - ChatGPT subscription OAuth does not replace OpenAI API key billing.
@@ -52,6 +63,8 @@ Use `.env.example` as template.
 - History window split:
   - `ASSISTANT_HISTORY_WINDOW_CLOUD=8`
   - `ASSISTANT_HISTORY_WINDOW_LOCAL=20`
+- Compact news default count:
+  - `ASSISTANT_NEWS_DEFAULT_COUNT=5`
 - Heavy auto-offload policy:
   - `ASSISTANT_LOCAL_HEAVY_CHARS_THRESHOLD=520`
   - `ASSISTANT_LOCAL_HEAVY_TOKEN_THRESHOLD=2200`
@@ -81,6 +94,11 @@ npm run telegram:market3h:launchd -- status
 ```bash
 MARKET3H_DISPATCH_MODE=local_queue npm run telegram:market3h:launchd -- install
 ```
+
+## Briefing Format Policy
+- `market_3h`, `/daily`, `/review`, and reminder batches use one compact format:
+  - `🧩 뉴스 블록` (domestic+global mixed, default 5 items, each with ★ importance)
+  - `📊 종합 데이터 분석 요약` (요약 3 + 전망 2 + 종합 정리)
 
 ## Separation Rule
 - `apps/unmyeong-snap`: viral product app only

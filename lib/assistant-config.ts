@@ -1,5 +1,9 @@
-import { ASSISTANT_BOT_IDS } from "@/lib/assistant-bots";
-import type { AssistantBotId } from "@/lib/assistant-types";
+import {
+  ASSISTANT_BOT_IDS,
+  isAssistantBotId,
+  normalizeAssistantBotId
+} from "@/lib/assistant-bots";
+import type { AssistantBotId, AssistantCanonicalBotId } from "@/lib/assistant-types";
 
 const DEFAULT_OPENAI_MODEL = "gpt-5.2";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
@@ -9,12 +13,13 @@ const DEFAULT_LOCAL_HEAVY_CHARS_THRESHOLD = 520;
 const DEFAULT_LOCAL_HEAVY_TOKEN_THRESHOLD = 2200;
 const DEFAULT_HISTORY_WINDOW_CLOUD = 8;
 const DEFAULT_HISTORY_WINDOW_LOCAL = 20;
-const DEFAULT_LOCAL_HEAVY_ENABLE_BOTS: AssistantBotId[] = [
+const DEFAULT_LOCAL_HEAVY_ENABLE_BOTS: AssistantCanonicalBotId[] = [
   "tyler_durden",
   "zhuge_liang",
   "jensen_huang",
   "hemingway_ernest"
 ];
+const DEFAULT_NEWS_DEFAULT_COUNT = 5;
 const DEFAULT_DAILY_COST_CAP_USD = 15;
 const DEFAULT_DAILY_TOKEN_CAP = 250_000;
 
@@ -25,7 +30,7 @@ interface AssistantBotRuntimeConfig {
 }
 
 export interface AssistantConfig {
-  telegramBots: Record<AssistantBotId, AssistantBotRuntimeConfig>;
+  telegramBots: Record<AssistantCanonicalBotId, AssistantBotRuntimeConfig>;
   telegramAllowedUserIds: Set<number>;
   telegramAllowedChatIds: Set<number>;
   telegramMayhemChatId?: number;
@@ -39,15 +44,16 @@ export interface AssistantConfig {
   localWorkerSecret: string;
   localHeavyCharsThreshold: number;
   localHeavyTokenThreshold: number;
-  localHeavyEnableBots: Set<AssistantBotId>;
+  localHeavyEnableBots: Set<AssistantCanonicalBotId>;
   historyWindowCloud: number;
   historyWindowLocal: number;
+  newsDefaultCount: number;
   dailyCostCapUsd: number;
   dailyTokenCap: number;
 }
 
 const BOT_ENV_KEYS: Record<
-  AssistantBotId,
+  AssistantCanonicalBotId,
   {
     tokenKey: string;
     secretKey: string;
@@ -80,10 +86,13 @@ const BOT_ENV_KEYS: Record<
     secretKey: "TELEGRAM_BOT_INK_SECRET",
     usernameKey: "TELEGRAM_BOT_INK_USERNAME"
   },
-  alfred_sentry: {
-    tokenKey: "TELEGRAM_BOT_SENTRY_TOKEN",
-    secretKey: "TELEGRAM_BOT_SENTRY_SECRET",
-    usernameKey: "TELEGRAM_BOT_SENTRY_USERNAME"
+  michael_corleone: {
+    tokenKey: "TELEGRAM_BOT_CORLEONE_TOKEN",
+    secretKey: "TELEGRAM_BOT_CORLEONE_SECRET",
+    usernameKey: "TELEGRAM_BOT_CORLEONE_USERNAME",
+    legacyTokenKey: "TELEGRAM_BOT_SENTRY_TOKEN",
+    legacySecretKey: "TELEGRAM_BOT_SENTRY_SECRET",
+    legacyUsernameKey: "TELEGRAM_BOT_SENTRY_USERNAME"
   }
 };
 
@@ -137,16 +146,19 @@ function parseStringList(rawValue: string | undefined): string[] {
   return values;
 }
 
-function parseBotIdSet(rawValue: string | undefined, fallback: AssistantBotId[]): Set<AssistantBotId> {
+function parseBotIdSet(
+  rawValue: string | undefined,
+  fallback: AssistantCanonicalBotId[]
+): Set<AssistantCanonicalBotId> {
   const list = parseStringList(rawValue);
   if (list.length === 0) {
     return new Set(fallback);
   }
 
-  const valid = new Set<AssistantBotId>();
+  const valid = new Set<AssistantCanonicalBotId>();
   for (const candidate of list) {
-    if (ASSISTANT_BOT_IDS.includes(candidate as AssistantBotId)) {
-      valid.add(candidate as AssistantBotId);
+    if (isAssistantBotId(candidate)) {
+      valid.add(normalizeAssistantBotId(candidate));
     }
   }
   return valid.size > 0 ? valid : new Set(fallback);
@@ -163,20 +175,25 @@ function parseChatId(rawValue: string | undefined): number | undefined {
   return parsed;
 }
 
+function readEnvFirstNonEmpty(keys: Array<string | undefined>) {
+  for (const key of keys) {
+    if (!key) {
+      continue;
+    }
+    const value = process.env[key]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
 function readAssistantBotRuntimeConfig(botId: AssistantBotId): AssistantBotRuntimeConfig {
-  const keys = BOT_ENV_KEYS[botId];
-  const token =
-    process.env[keys.tokenKey] ??
-    (keys.legacyTokenKey ? process.env[keys.legacyTokenKey] : "") ??
-    "";
-  const webhookSecret =
-    process.env[keys.secretKey] ??
-    (keys.legacySecretKey ? process.env[keys.legacySecretKey] : "") ??
-    "";
-  const username =
-    process.env[keys.usernameKey] ??
-    (keys.legacyUsernameKey ? process.env[keys.legacyUsernameKey] : "") ??
-    "";
+  const canonicalBotId = normalizeAssistantBotId(botId);
+  const keys = BOT_ENV_KEYS[canonicalBotId];
+  const token = readEnvFirstNonEmpty([keys.tokenKey, keys.legacyTokenKey]);
+  const webhookSecret = readEnvFirstNonEmpty([keys.secretKey, keys.legacySecretKey]);
+  const username = readEnvFirstNonEmpty([keys.usernameKey, keys.legacyUsernameKey]);
 
   return {
     token,
@@ -198,7 +215,7 @@ export function getAssistantConfig(): AssistantConfig {
       zhuge_liang: readAssistantBotRuntimeConfig("zhuge_liang"),
       jensen_huang: readAssistantBotRuntimeConfig("jensen_huang"),
       hemingway_ernest: readAssistantBotRuntimeConfig("hemingway_ernest"),
-      alfred_sentry: readAssistantBotRuntimeConfig("alfred_sentry")
+      michael_corleone: readAssistantBotRuntimeConfig("michael_corleone")
     },
     telegramAllowedUserIds: parseIdSet(process.env.TELEGRAM_ALLOWED_USER_IDS),
     telegramAllowedChatIds: parseIdSet(process.env.TELEGRAM_ALLOWED_CHAT_IDS, {
@@ -236,6 +253,10 @@ export function getAssistantConfig(): AssistantConfig {
       process.env.ASSISTANT_HISTORY_WINDOW_LOCAL,
       DEFAULT_HISTORY_WINDOW_LOCAL
     ),
+    newsDefaultCount: parsePositiveInt(
+      process.env.ASSISTANT_NEWS_DEFAULT_COUNT,
+      DEFAULT_NEWS_DEFAULT_COUNT
+    ),
     dailyCostCapUsd: parsePositiveNumber(
       process.env.ASSISTANT_DAILY_COST_CAP_USD,
       DEFAULT_DAILY_COST_CAP_USD
@@ -245,8 +266,9 @@ export function getAssistantConfig(): AssistantConfig {
 }
 
 function appendMissingBotKeys(missing: string[], config: AssistantConfig, botId: AssistantBotId) {
-  const bot = config.telegramBots[botId];
-  const envKeys = BOT_ENV_KEYS[botId];
+  const canonicalBotId = normalizeAssistantBotId(botId);
+  const bot = config.telegramBots[canonicalBotId];
+  const envKeys = BOT_ENV_KEYS[canonicalBotId];
 
   if (!bot.token) {
     missing.push(envKeys.tokenKey);
@@ -266,7 +288,7 @@ export function getAssistantMissingConfigKeys(
   const missing: string[] = [];
   const targetBotIds = options?.requireAllBots
     ? ASSISTANT_BOT_IDS
-    : [options?.botId ?? "tyler_durden"];
+    : [normalizeAssistantBotId(options?.botId)];
 
   for (const botId of targetBotIds) {
     appendMissingBotKeys(missing, config, botId);
@@ -321,7 +343,7 @@ export function isWebhookSecretValid(
   botId: AssistantBotId = "tyler_durden",
   config = getAssistantConfig()
 ): boolean {
-  const targetBot = config.telegramBots[botId];
+  const targetBot = config.telegramBots[normalizeAssistantBotId(botId)];
   if (!targetBot?.webhookSecret) {
     return false;
   }
@@ -332,7 +354,7 @@ export function getAssistantBotRuntimeConfig(
   botId: AssistantBotId,
   config = getAssistantConfig()
 ): AssistantBotRuntimeConfig {
-  return config.telegramBots[botId];
+  return config.telegramBots[normalizeAssistantBotId(botId)];
 }
 
 export function maskConfigValue(value: string): string {
@@ -366,6 +388,7 @@ export function getAssistantConfigSummary(config = getAssistantConfig()) {
     localHeavyEnableBots: Array.from(config.localHeavyEnableBots),
     historyWindowCloud: config.historyWindowCloud,
     historyWindowLocal: config.historyWindowLocal,
+    newsDefaultCount: config.newsDefaultCount,
     dailyCostCapUsd: config.dailyCostCapUsd,
     dailyTokenCap: config.dailyTokenCap,
     allowlist: {
@@ -393,7 +416,7 @@ export function __private_parseStringList(rawValue: string | undefined) {
 
 export function __private_parseBotIdSet(
   rawValue: string | undefined,
-  fallback: AssistantBotId[] = DEFAULT_LOCAL_HEAVY_ENABLE_BOTS
+  fallback: AssistantCanonicalBotId[] = DEFAULT_LOCAL_HEAVY_ENABLE_BOTS
 ) {
   return parseBotIdSet(rawValue, fallback);
 }

@@ -3,12 +3,14 @@ export type AssistantProviderName = "openai" | "anthropic" | "none";
 export type AssistantUpdateSource = "webhook" | "polling" | "manual";
 export type AssistantDispatchMode = "cloud" | "local_queue";
 export type AssistantExecutionMode = "cloud_short" | "local_heavy";
-export type AssistantBotId =
+export type AssistantCanonicalBotId =
   | "tyler_durden"
   | "zhuge_liang"
   | "jensen_huang"
   | "hemingway_ernest"
-  | "alfred_sentry";
+  | "michael_corleone";
+export type AssistantBotLegacyAlias = "alfred_sentry";
+export type AssistantBotId = AssistantCanonicalBotId | AssistantBotLegacyAlias;
 
 export interface TelegramUser {
   id: number;
