@@ -12,9 +12,75 @@ const PLIST_PATH = path.join(os.homedir(), "Library", "LaunchAgents", `${LABEL}.
 const LOG_PATH = process.env.MARKET3H_LOG_PATH ?? "/tmp/market3h.log";
 const ERR_LOG_PATH = process.env.MARKET3H_ERR_LOG_PATH ?? "/tmp/market3h.err.log";
 const INTERVAL_SEC = Number(process.env.MARKET3H_INTERVAL_SEC ?? "10800");
+const DISPATCH_MODE = resolveDispatchMode(process.env.MARKET3H_DISPATCH_MODE ?? "cloud");
+
+function resolveDispatchMode(rawMode) {
+  const normalized = String(rawMode ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (!normalized || normalized === "cloud") {
+    return "cloud";
+  }
+  if (normalized === "local_queue") {
+    return "local_queue";
+  }
+
+  throw new Error(`invalid MARKET3H_DISPATCH_MODE: ${rawMode} (expected cloud|local_queue)`);
+}
+
+function escapeXml(value) {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function unescapeXml(value) {
+  return value
+    .replaceAll("&apos;", "'")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&gt;", ">")
+    .replaceAll("&lt;", "<")
+    .replaceAll("&amp;", "&");
+}
+
+function buildLaunchCommand(mode) {
+  const appDirEscaped = APP_DIR.replace(/'/g, "'\\''");
+  const base = `cd '${appDirEscaped}' && npm run telegram:ops:run -- market_3h`;
+  if (mode === "local_queue") {
+    return `${base} local_queue && npm run telegram:local:worker -- --once`;
+  }
+  return `${base} cloud`;
+}
+
+function detectDispatchModeFromCommand(command) {
+  if (!command) {
+    return "unknown";
+  }
+  if (command.includes("market_3h local_queue")) {
+    return "local_queue";
+  }
+  if (command.includes("market_3h cloud")) {
+    return "cloud";
+  }
+  return "unknown";
+}
+
+function extractLaunchCommandFromPlist(plistText) {
+  const match = plistText.match(
+    /<key>ProgramArguments<\/key>[\s\S]*?<array>[\s\S]*?<string>\/bin\/zsh<\/string>[\s\S]*?<string>-lc<\/string>[\s\S]*?<string>([\s\S]*?)<\/string>[\s\S]*?<\/array>/
+  );
+  if (!match?.[1]) {
+    return null;
+  }
+  return unescapeXml(match[1]);
+}
 
 function buildPlist() {
-  const command = `cd '${APP_DIR.replace(/'/g, "'\\''")}' && npm run telegram:ops:run -- market_3h local_queue && npm run telegram:local:worker -- --once`;
+  const command = buildLaunchCommand(DISPATCH_MODE);
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -27,7 +93,7 @@ function buildPlist() {
     <array>
       <string>/bin/zsh</string>
       <string>-lc</string>
-      <string>${command}</string>
+      <string>${escapeXml(command)}</string>
     </array>
 
     <key>StartInterval</key>
@@ -72,6 +138,8 @@ function install() {
   run(`launchctl load '${PLIST_PATH}'`);
   console.log(`[PASS] installed launchd job: ${LABEL}`);
   console.log(`[INFO] plist: ${PLIST_PATH}`);
+  console.log(`[INFO] dispatch mode: ${DISPATCH_MODE}`);
+  console.log(`[INFO] launch command: ${buildLaunchCommand(DISPATCH_MODE)}`);
 }
 
 function uninstall() {
@@ -95,8 +163,25 @@ function status() {
     console.log(`[INFO] ${LABEL} not found in launchctl list`);
   }
 
-  console.log(`[INFO] plist exists: ${fs.existsSync(PLIST_PATH)}`);
+  const plistExists = fs.existsSync(PLIST_PATH);
+  console.log(`[INFO] resolved dispatch mode (env/default): ${DISPATCH_MODE}`);
+  console.log(`[INFO] resolved command: ${buildLaunchCommand(DISPATCH_MODE)}`);
+  console.log(`[INFO] plist exists: ${plistExists}`);
   console.log(`[INFO] plist path: ${PLIST_PATH}`);
+
+  if (!plistExists) {
+    return;
+  }
+
+  const plistText = fs.readFileSync(PLIST_PATH, "utf8");
+  const installedCommand = extractLaunchCommandFromPlist(plistText);
+  const installedMode = detectDispatchModeFromCommand(installedCommand);
+  console.log(`[INFO] installed dispatch mode: ${installedMode}`);
+  if (installedCommand) {
+    console.log(`[INFO] installed command: ${installedCommand}`);
+  } else {
+    console.log("[WARN] unable to parse ProgramArguments command from plist");
+  }
 }
 
 if (ACTION === "install") {

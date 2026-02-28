@@ -1,32 +1,18 @@
-# Telegram Local Worker (Claude Code CLI)
+# Telegram market_3h Runtime (Cloud default)
 
-## 1) Prerequisites
-- Claude Code CLI installed on Mac (`claude` command available)
-- Claude login completed (`claude /login`)
-- `.env.local` contains:
-  - `APP_BASE_URL`
-  - `LOCAL_WORKER_SECRET` (or `CRON_SECRET`)
-  - Optional: `CLAUDE_CODE_BIN`, `CLAUDE_CODE_ARGS`, `LOCAL_WORKER_POLL_INTERVAL_MS`
+## 1) Default operation mode
+- Recommended default: `cloud`
+- `local_queue` is optional and should be enabled only when Claude Code CLI is available.
 
-## 2) Run one job manually
+## 2) launchd install (every 3 hours)
+Cloud mode install (default):
 ```bash
-npm run telegram:local:worker -- --once
+MARKET3H_DISPATCH_MODE=cloud npm run telegram:market3h:launchd -- install
 ```
 
-## 3) market_3h with local queue
+Print generated plist:
 ```bash
-npm run telegram:ops:run -- market_3h local_queue
-```
-
-## 4) launchd (every 3 hours)
-One-command install:
-```bash
-npm run telegram:market3h:launchd -- install
-```
-
-Print generated plist (current app directory is used by default):
-```bash
-npm run telegram:market3h:launchd -- print
+MARKET3H_DISPATCH_MODE=cloud npm run telegram:market3h:launchd -- print
 ```
 
 Status / uninstall:
@@ -35,40 +21,40 @@ npm run telegram:market3h:launchd -- status
 npm run telegram:market3h:launchd -- uninstall
 ```
 
-Create `~/Library/LaunchAgents/com.tyler.market3h.plist`:
+`status` output now includes:
+- resolved dispatch mode (from env/default)
+- resolved command
+- installed dispatch mode (parsed from plist)
+- installed command
 
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-  <dict>
-    <key>Label</key>
-    <string>com.tyler.market3h</string>
+## 3) Local queue re-enable (optional)
+Prerequisites:
+- Claude Code CLI installed (`claude` command available)
+- Claude login completed (`claude /login`)
+- `.env.local` has `APP_BASE_URL`, `LOCAL_WORKER_SECRET` (or `CRON_SECRET`)
 
-    <key>ProgramArguments</key>
-    <array>
-      <string>/bin/zsh</string>
-      <string>-lc</string>
-      <string>cd '/Users/taehyeonkim/Documents/New project/apps/telegram-assistant' && npm run telegram:ops:run -- market_3h local_queue && npm run telegram:local:worker -- --once</string>
-    </array>
-
-    <key>StartInterval</key>
-    <integer>10800</integer>
-
-    <key>RunAtLoad</key>
-    <true/>
-
-    <key>StandardOutPath</key>
-    <string>/tmp/market3h.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/market3h.err.log</string>
-  </dict>
-</plist>
+Install launchd in `local_queue` mode:
+```bash
+MARKET3H_DISPATCH_MODE=local_queue npm run telegram:market3h:launchd -- install
 ```
 
-Load:
+Run one worker cycle manually:
 ```bash
-launchctl unload ~/Library/LaunchAgents/com.tyler.market3h.plist 2>/dev/null || true
-launchctl load ~/Library/LaunchAgents/com.tyler.market3h.plist
-launchctl list | rg com.tyler.market3h
+npm run telegram:local:worker -- --once
+```
+
+Manual one-off local queue run:
+```bash
+npm run telegram:ops:run -- market_3h local_queue
+```
+
+## 4) Expected launch command by mode
+Cloud:
+```bash
+cd '/Users/taehyeonkim/Documents/New project/apps/telegram-assistant' && npm run telegram:ops:run -- market_3h cloud
+```
+
+Local queue:
+```bash
+cd '/Users/taehyeonkim/Documents/New project/apps/telegram-assistant' && npm run telegram:ops:run -- market_3h local_queue && npm run telegram:local:worker -- --once
 ```

@@ -40,6 +40,21 @@ npm run dev
 
 Use `.env.example` as template.
 
+## Operations (market_3h)
+- Default runtime mode: `cloud`
+- Install/refresh launchd job in cloud mode:
+```bash
+MARKET3H_DISPATCH_MODE=cloud npm run telegram:market3h:launchd -- install
+```
+- Check launchd status (includes resolved/installed mode + command):
+```bash
+npm run telegram:market3h:launchd -- status
+```
+- Optional local queue mode (requires Claude Code CLI + login):
+```bash
+MARKET3H_DISPATCH_MODE=local_queue npm run telegram:market3h:launchd -- install
+```
+
 ## Separation Rule
 - `apps/unmyeong-snap`: viral product app only
 - `apps/telegram-assistant`: Telegram assistant only
