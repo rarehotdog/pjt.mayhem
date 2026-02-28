@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   __private_buildSystemPrompt,
@@ -19,6 +19,21 @@ const sampleInput: AssistantGenerationInput = {
 };
 
 describe("assistant-llm fallback", () => {
+  const envSnapshot = {
+    OPENAI_MODEL: process.env.OPENAI_MODEL,
+    OPENAI_MODEL_CANDIDATES: process.env.OPENAI_MODEL_CANDIDATES
+  };
+
+  beforeEach(() => {
+    process.env.OPENAI_MODEL = "gpt-5.2";
+    process.env.OPENAI_MODEL_CANDIDATES = "gpt-5.2,gpt-5.1,gpt-5";
+  });
+
+  afterEach(() => {
+    process.env.OPENAI_MODEL = envSnapshot.OPENAI_MODEL;
+    process.env.OPENAI_MODEL_CANDIDATES = envSnapshot.OPENAI_MODEL_CANDIDATES;
+  });
+
   it("builds zhuge prompt with no-json default rule", () => {
     const prompt = __private_buildSystemPrompt("Asia/Seoul", "zhuge_liang");
     expect(prompt).toContain("제갈량");
@@ -59,6 +74,32 @@ describe("assistant-llm fallback", () => {
     expect(result.provider).toBe("anthropic");
     expect(result.fallbackFrom).toBe("openai");
     expect(result.outputText).toContain("백업");
+  });
+
+  it("tries openai model candidates in order", async () => {
+    const attempts: string[] = [];
+
+    const result = await generateAssistantReply(sampleInput, {
+      async generateOpenAi(_, options) {
+        const model = options?.modelOverride ?? "unknown";
+        attempts.push(model);
+        if (model === "gpt-5.2") {
+          throw new Error("model not available");
+        }
+        return {
+          text: "후보 모델로 성공",
+          model
+        };
+      },
+      async generateAnthropic() {
+        throw new Error("should not be called");
+      }
+    });
+
+    expect(attempts).toEqual(["gpt-5.2", "gpt-5.1"]);
+    expect(result.provider).toBe("openai");
+    expect(result.model).toBe("gpt-5.1");
+    expect(result.metadata?.openAiAttemptedModels).toEqual(["gpt-5.2", "gpt-5.1"]);
   });
 
   it("throws when both providers fail", async () => {

@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   __private_formatLensJsonToPlainText,
   __private_requestsStructuredOutput,
+  __private_shouldQueueLocalHeavy,
   executeAssistantCommand
 } from "@/lib/assistant-service";
+import type { AssistantConfig } from "@/lib/assistant-config";
 
 function buildDeps() {
   return {
@@ -17,6 +19,62 @@ function buildDeps() {
     approveAction: vi.fn(async () => undefined),
     rejectAction: vi.fn(async () => undefined),
     buildCostMessage: vi.fn(async () => "비용 요약")
+  };
+}
+
+function buildConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
+  return {
+    telegramBots: {
+      tyler_durden: {
+        token: "token-cos",
+        webhookSecret: "secret-cos",
+        username: "tyler"
+      },
+      zhuge_liang: {
+        token: "token-lens",
+        webhookSecret: "secret-lens",
+        username: "lens"
+      },
+      jensen_huang: {
+        token: "token-bolt",
+        webhookSecret: "secret-bolt",
+        username: "bolt"
+      },
+      hemingway_ernest: {
+        token: "token-ink",
+        webhookSecret: "secret-ink",
+        username: "ink"
+      },
+      alfred_sentry: {
+        token: "token-sentry",
+        webhookSecret: "secret-sentry",
+        username: "sentry"
+      }
+    },
+    telegramAllowedUserIds: new Set<number>([111]),
+    telegramAllowedChatIds: new Set<number>([222]),
+    telegramMayhemChatId: undefined,
+    openAiApiKey: "openai",
+    openAiModel: "gpt-5.2",
+    openAiModelCandidates: ["gpt-5.2"],
+    anthropicApiKey: "anthropic",
+    anthropicModel: "claude-sonnet-4-5",
+    assistantTimezone: "Asia/Seoul",
+    rateLimitPerMinute: 20,
+    localWorkerSecret: "worker-secret",
+    localHeavyCharsThreshold: 520,
+    localHeavyTokenThreshold: 2200,
+    localHeavyEnableBots: new Set([
+      "tyler_durden",
+      "zhuge_liang",
+      "jensen_huang",
+      "hemingway_ernest"
+    ]),
+    historyWindowCloud: 8,
+    historyWindowLocal: 20,
+    dailyCostCapUsd: 15,
+    dailyTokenCap: 250000,
+    ...overrides
   };
 }
 
@@ -168,5 +226,40 @@ describe("assistant commands", () => {
     expect(converted).toContain("핵심 결론:");
     expect(converted).toContain("근거:");
     expect(converted).toContain("다음 48시간 액션:");
+  });
+
+  it("routes long research requests to local queue", () => {
+    const config = buildConfig();
+    const result = __private_shouldQueueLocalHeavy(
+      "zhuge_liang",
+      "시장 리서치 딥다이브 보고서 작성해줘",
+      config,
+      false
+    );
+    expect(result).toBe(true);
+  });
+
+  it("does not queue structured-output requests", () => {
+    const config = buildConfig();
+    const result = __private_shouldQueueLocalHeavy(
+      "zhuge_liang",
+      "json으로 응답해줘",
+      config,
+      true
+    );
+    expect(result).toBe(false);
+  });
+
+  it("respects local heavy bot allowlist", () => {
+    const config = buildConfig({
+      localHeavyEnableBots: new Set(["zhuge_liang"])
+    });
+    const result = __private_shouldQueueLocalHeavy(
+      "alfred_sentry",
+      "긴 글로 아티클 써줘",
+      config,
+      false
+    );
+    expect(result).toBe(false);
   });
 });

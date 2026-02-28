@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  __private_parseBotIdSet,
   __private_parseIdSet,
+  __private_parseStringList,
   isAllowlisted,
   isWebhookSecretValid,
   type AssistantConfig
@@ -40,12 +42,22 @@ function baseConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
     telegramAllowedChatIds: new Set<number>([222]),
     openAiApiKey: "openai",
     openAiModel: "gpt-5.2",
+    openAiModelCandidates: ["gpt-5.2", "gpt-5.1", "gpt-5"],
     anthropicApiKey: "anthropic",
     anthropicModel: "claude-sonnet-4-5",
     assistantTimezone: "Asia/Seoul",
     rateLimitPerMinute: 20,
     localWorkerSecret: "worker-secret",
     localHeavyCharsThreshold: 520,
+    localHeavyTokenThreshold: 2200,
+    localHeavyEnableBots: new Set([
+      "tyler_durden",
+      "zhuge_liang",
+      "jensen_huang",
+      "hemingway_ernest"
+    ]),
+    historyWindowCloud: 8,
+    historyWindowLocal: 20,
     dailyCostCapUsd: 15,
     dailyTokenCap: 250000,
     ...overrides
@@ -63,6 +75,16 @@ describe("assistant-config", () => {
       allowNegative: true
     });
     expect(Array.from(parsed)).toEqual([10, -100123]);
+  });
+
+  it("parses and deduplicates string lists", () => {
+    const parsed = __private_parseStringList("gpt-5.2, gpt-5.1, gpt-5.2, gpt-5");
+    expect(parsed).toEqual(["gpt-5.2", "gpt-5.1", "gpt-5"]);
+  });
+
+  it("parses local heavy bot allowlist with fallback", () => {
+    const parsed = __private_parseBotIdSet("zhuge_liang,invalid,jensen_huang");
+    expect(Array.from(parsed)).toEqual(["zhuge_liang", "jensen_huang"]);
   });
 
   it("blocks requests that are not in allowlist", () => {

@@ -6,6 +6,15 @@ const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5";
 const DEFAULT_TIMEZONE = "Asia/Seoul";
 const DEFAULT_RATE_LIMIT_PER_MINUTE = 20;
 const DEFAULT_LOCAL_HEAVY_CHARS_THRESHOLD = 520;
+const DEFAULT_LOCAL_HEAVY_TOKEN_THRESHOLD = 2200;
+const DEFAULT_HISTORY_WINDOW_CLOUD = 8;
+const DEFAULT_HISTORY_WINDOW_LOCAL = 20;
+const DEFAULT_LOCAL_HEAVY_ENABLE_BOTS: AssistantBotId[] = [
+  "tyler_durden",
+  "zhuge_liang",
+  "jensen_huang",
+  "hemingway_ernest"
+];
 const DEFAULT_DAILY_COST_CAP_USD = 15;
 const DEFAULT_DAILY_TOKEN_CAP = 250_000;
 
@@ -22,12 +31,17 @@ export interface AssistantConfig {
   telegramMayhemChatId?: number;
   openAiApiKey: string;
   openAiModel: string;
+  openAiModelCandidates: string[];
   anthropicApiKey: string;
   anthropicModel: string;
   assistantTimezone: string;
   rateLimitPerMinute: number;
   localWorkerSecret: string;
   localHeavyCharsThreshold: number;
+  localHeavyTokenThreshold: number;
+  localHeavyEnableBots: Set<AssistantBotId>;
+  historyWindowCloud: number;
+  historyWindowLocal: number;
   dailyCostCapUsd: number;
   dailyTokenCap: number;
 }
@@ -105,6 +119,39 @@ function parsePositiveNumber(rawValue: string | undefined, fallback: number): nu
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseStringList(rawValue: string | undefined): string[] {
+  if (!rawValue) {
+    return [];
+  }
+
+  const unique = new Set<string>();
+  const values: string[] = [];
+  for (const token of rawValue.split(",")) {
+    const trimmed = token.trim();
+    if (!trimmed || unique.has(trimmed)) {
+      continue;
+    }
+    unique.add(trimmed);
+    values.push(trimmed);
+  }
+  return values;
+}
+
+function parseBotIdSet(rawValue: string | undefined, fallback: AssistantBotId[]): Set<AssistantBotId> {
+  const list = parseStringList(rawValue);
+  if (list.length === 0) {
+    return new Set(fallback);
+  }
+
+  const valid = new Set<AssistantBotId>();
+  for (const candidate of list) {
+    if (ASSISTANT_BOT_IDS.includes(candidate as AssistantBotId)) {
+      valid.add(candidate as AssistantBotId);
+    }
+  }
+  return valid.size > 0 ? valid : new Set(fallback);
+}
+
 function parseChatId(rawValue: string | undefined): number | undefined {
   if (!rawValue) {
     return undefined;
@@ -139,6 +186,12 @@ function readAssistantBotRuntimeConfig(botId: AssistantBotId): AssistantBotRunti
 }
 
 export function getAssistantConfig(): AssistantConfig {
+  const openAiModel = process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL;
+  const openAiModelCandidates = parseStringList(process.env.OPENAI_MODEL_CANDIDATES);
+  if (!openAiModelCandidates.includes(openAiModel)) {
+    openAiModelCandidates.unshift(openAiModel);
+  }
+
   return {
     telegramBots: {
       tyler_durden: readAssistantBotRuntimeConfig("tyler_durden"),
@@ -153,7 +206,8 @@ export function getAssistantConfig(): AssistantConfig {
     }),
     telegramMayhemChatId: parseChatId(process.env.TELEGRAM_MAYHEM_CHAT_ID),
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
-    openAiModel: process.env.OPENAI_MODEL ?? DEFAULT_OPENAI_MODEL,
+    openAiModel,
+    openAiModelCandidates,
     anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? "",
     anthropicModel: process.env.ANTHROPIC_MODEL ?? DEFAULT_ANTHROPIC_MODEL,
     assistantTimezone: process.env.ASSISTANT_TIMEZONE ?? DEFAULT_TIMEZONE,
@@ -165,6 +219,22 @@ export function getAssistantConfig(): AssistantConfig {
     localHeavyCharsThreshold: parsePositiveInt(
       process.env.ASSISTANT_LOCAL_HEAVY_CHARS_THRESHOLD,
       DEFAULT_LOCAL_HEAVY_CHARS_THRESHOLD
+    ),
+    localHeavyTokenThreshold: parsePositiveInt(
+      process.env.ASSISTANT_LOCAL_HEAVY_TOKEN_THRESHOLD,
+      DEFAULT_LOCAL_HEAVY_TOKEN_THRESHOLD
+    ),
+    localHeavyEnableBots: parseBotIdSet(
+      process.env.ASSISTANT_LOCAL_HEAVY_ENABLE_BOTS,
+      DEFAULT_LOCAL_HEAVY_ENABLE_BOTS
+    ),
+    historyWindowCloud: parsePositiveInt(
+      process.env.ASSISTANT_HISTORY_WINDOW_CLOUD,
+      DEFAULT_HISTORY_WINDOW_CLOUD
+    ),
+    historyWindowLocal: parsePositiveInt(
+      process.env.ASSISTANT_HISTORY_WINDOW_LOCAL,
+      DEFAULT_HISTORY_WINDOW_LOCAL
     ),
     dailyCostCapUsd: parsePositiveNumber(
       process.env.ASSISTANT_DAILY_COST_CAP_USD,
@@ -287,10 +357,15 @@ export function getAssistantConfigSummary(config = getAssistantConfig()) {
       return acc;
     }, {}),
     openAiModel: config.openAiModel,
+    openAiModelCandidates: config.openAiModelCandidates,
     anthropicModel: config.anthropicModel,
     assistantTimezone: config.assistantTimezone,
     rateLimitPerMinute: config.rateLimitPerMinute,
     localHeavyCharsThreshold: config.localHeavyCharsThreshold,
+    localHeavyTokenThreshold: config.localHeavyTokenThreshold,
+    localHeavyEnableBots: Array.from(config.localHeavyEnableBots),
+    historyWindowCloud: config.historyWindowCloud,
+    historyWindowLocal: config.historyWindowLocal,
     dailyCostCapUsd: config.dailyCostCapUsd,
     dailyTokenCap: config.dailyTokenCap,
     allowlist: {
@@ -310,4 +385,15 @@ export function __private_parseIdSet(
   }
 ) {
   return parseIdSet(rawValue, options);
+}
+
+export function __private_parseStringList(rawValue: string | undefined) {
+  return parseStringList(rawValue);
+}
+
+export function __private_parseBotIdSet(
+  rawValue: string | undefined,
+  fallback: AssistantBotId[] = DEFAULT_LOCAL_HEAVY_ENABLE_BOTS
+) {
+  return parseBotIdSet(rawValue, fallback);
 }

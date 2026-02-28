@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "openai:model:check": "node --env-file=.env.local scripts/ops/check-openai-model.mjs",
+    "deploy:prod": "npm run openai:model:check && npx vercel --prod",
     "analytics:staging:check": "node scripts/analytics/staging-validation.mjs",
     "telegram:dev:polling": "node --env-file=.env.local scripts/telegram/dev-polling.mjs",
     "telegram:webhook:info": "node --env-file=.env.local scripts/telegram/webhook-smoke.mjs info",

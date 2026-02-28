@@ -72,6 +72,7 @@ export interface AssistantProviderResult {
   estimatedCostUsd?: number;
   fallbackFrom?: AssistantProviderName;
   error?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export type ReminderJobKind = "morning_plan" | "evening_review";

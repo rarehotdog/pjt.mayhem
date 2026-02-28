@@ -24,7 +24,12 @@ export interface AssistantGenerationInput {
 }
 
 export interface AssistantLlmRunner {
-  generateOpenAi(input: AssistantGenerationInput): Promise<{
+  generateOpenAi(
+    input: AssistantGenerationInput,
+    options?: {
+      modelOverride?: string;
+    }
+  ): Promise<{
     text: string;
     model: string;
     tokensIn?: number;
@@ -227,15 +232,16 @@ export function createDefaultAssistantLlmRunner(): AssistantLlmRunner {
   const config = getAssistantConfig();
 
   return {
-    async generateOpenAi(input) {
+    async generateOpenAi(input, options) {
       if (!config.openAiApiKey) {
         throw new Error("OPENAI_API_KEY is not configured.");
       }
 
+      const model = options?.modelOverride ?? config.openAiModel;
       const client = getOpenAiClient(config.openAiApiKey);
       const response = await client.responses.create(
         {
-          model: config.openAiModel,
+          model,
           input: toOpenAiInput(input),
           temperature: input.temperature ?? DEFAULT_TEMPERATURE,
           max_output_tokens: input.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS
@@ -247,7 +253,7 @@ export function createDefaultAssistantLlmRunner(): AssistantLlmRunner {
 
       return {
         text: extractOpenAiText(response),
-        model: config.openAiModel,
+        model,
         ...parseOpenAiUsage(response)
       };
     },
@@ -288,27 +294,61 @@ export function createDefaultAssistantLlmRunner(): AssistantLlmRunner {
   };
 }
 
+function buildOpenAiModelCandidates(config: ReturnType<typeof getAssistantConfig>) {
+  const candidates = [config.openAiModel, ...config.openAiModelCandidates];
+  const unique = new Set<string>();
+  const ordered: string[] = [];
+  for (const model of candidates) {
+    const trimmed = model.trim();
+    if (!trimmed || unique.has(trimmed)) {
+      continue;
+    }
+    unique.add(trimmed);
+    ordered.push(trimmed);
+  }
+  return ordered.length > 0 ? ordered : [config.openAiModel];
+}
+
 export async function generateAssistantReply(
   input: AssistantGenerationInput,
   runner: AssistantLlmRunner = createDefaultAssistantLlmRunner()
 ): Promise<AssistantProviderResult> {
-  let openAiError: string | undefined;
+  const config = getAssistantConfig();
+  const modelCandidates = buildOpenAiModelCandidates(config);
+  const openAiFailures: Record<string, string> = {};
   const openAiStart = Date.now();
 
-  try {
-    const openAiResult = await runner.generateOpenAi(input);
-    return {
-      provider: "openai",
-      model: openAiResult.model,
-      outputText: openAiResult.text,
-      latencyMs: Date.now() - openAiStart,
-      tokensIn: openAiResult.tokensIn,
-      tokensOut: openAiResult.tokensOut,
-      estimatedCostUsd: estimateCostUsd("openai", openAiResult.tokensIn, openAiResult.tokensOut)
-    };
-  } catch (caught) {
-    openAiError = sanitizeErrorMessage(caught);
+  for (const model of modelCandidates) {
+    try {
+      const openAiResult = await runner.generateOpenAi(input, {
+        modelOverride: model
+      });
+      const attemptedModels = modelCandidates.slice(
+        0,
+        Math.min(modelCandidates.indexOf(model) + 1, modelCandidates.length)
+      );
+
+      return {
+        provider: "openai",
+        model: openAiResult.model,
+        outputText: openAiResult.text,
+        latencyMs: Date.now() - openAiStart,
+        tokensIn: openAiResult.tokensIn,
+        tokensOut: openAiResult.tokensOut,
+        estimatedCostUsd: estimateCostUsd("openai", openAiResult.tokensIn, openAiResult.tokensOut),
+        metadata: {
+          openAiAttemptedModels: attemptedModels,
+          openAiFailures,
+          resolvedModel: openAiResult.model
+        }
+      };
+    } catch (caught) {
+      openAiFailures[model] = sanitizeErrorMessage(caught);
+    }
   }
+  const openAiErrorSummary = Object.entries(openAiFailures)
+    .map(([model, error]) => `${model}:${error}`)
+    .join(" | ");
 
   const anthropicStart = Date.now();
   try {
@@ -326,12 +366,17 @@ export async function generateAssistantReply(
         anthropicResult.tokensOut
       ),
       fallbackFrom: "openai",
-      error: openAiError
+      error: openAiErrorSummary,
+      metadata: {
+        openAiAttemptedModels: modelCandidates,
+        openAiFailures,
+        resolvedModel: anthropicResult.model
+      }
     };
   } catch (caught) {
     const anthropicError = sanitizeErrorMessage(caught);
     throw new Error(
-      `Both providers failed. openai=${openAiError ?? "unknown"} anthropic=${anthropicError}`
+      `Both providers failed. openai=${openAiErrorSummary || "unknown"} anthropic=${anthropicError}`
     );
   }
 }

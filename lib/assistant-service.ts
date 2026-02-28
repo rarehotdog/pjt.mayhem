@@ -487,7 +487,8 @@ async function buildChatResponse(input: AssistantGenerationInput): Promise<Assis
       providerError: result.error,
       tokensIn: result.tokensIn,
       tokensOut: result.tokensOut,
-      estimatedCostUsd: result.estimatedCostUsd
+      estimatedCostUsd: result.estimatedCostUsd,
+      ...(result.metadata ?? {})
     }
   };
 }
@@ -707,6 +708,17 @@ function detectExternalActionType(text: string): string | null {
   return null;
 }
 
+function estimateTokenCount(text: string) {
+  const compact = text.trim();
+  if (!compact) {
+    return 0;
+  }
+  const words = compact.split(/\s+/).filter(Boolean).length;
+  const byWords = words * 1.3;
+  const byChars = compact.length / 2;
+  return Math.ceil(Math.max(byWords, byChars));
+}
+
 function shouldQueueLocalHeavy(
   botId: AssistantBotId,
   text: string,
@@ -721,7 +733,7 @@ function shouldQueueLocalHeavy(
     return false;
   }
 
-  if (botId === "tyler_durden" || botId === "alfred_sentry") {
+  if (!config.localHeavyEnableBots.has(botId)) {
     return false;
   }
 
@@ -729,14 +741,27 @@ function shouldQueueLocalHeavy(
     return true;
   }
 
+  if (estimateTokenCount(text) >= config.localHeavyTokenThreshold) {
+    return true;
+  }
+
   const lower = text.toLowerCase();
   const heavyKeywords = [
+    "blog",
+    "article",
+    "deep research",
     "deep dive",
+    "블로그",
+    "아티클",
     "딥다이브",
     "장문",
     "긴 글",
     "리서치",
+    "콘텐츠",
+    "콘텐츠 작성",
     "시장 분석",
+    "분석 리포트",
+    "스레드",
     "스레드 작성",
     "팩트체크"
   ];
@@ -850,7 +875,8 @@ export async function processTelegramUpdate(
       locale: user.languageCode
     });
 
-    const history = await listRecentAssistantMessages(threadId, 20, botId);
+    const history = await listRecentAssistantMessages(threadId, config.historyWindowLocal, botId);
+    const historyForCloud = history.slice(-config.historyWindowCloud);
     await appendAssistantMessage({
       botId,
       threadId,
@@ -951,7 +977,7 @@ export async function processTelegramUpdate(
 
         const chatResponse = await buildChatResponse({
           botId,
-          history,
+          history: historyForCloud,
           userText: pendingActionId
             ? `${text}\n\n[시스템] 외부행동은 승인 전 실행 금지. action_id=${pendingActionId}`
             : text,
@@ -1182,4 +1208,13 @@ export function __private_requestsStructuredOutput(text: string) {
 
 export function __private_formatLensJsonToPlainText(text: string) {
   return formatLensJsonToPlainText(text);
+}
+
+export function __private_shouldQueueLocalHeavy(
+  botId: AssistantBotId,
+  text: string,
+  config: AssistantConfig,
+  hasStructuredRequest: boolean
+) {
+  return shouldQueueLocalHeavy(botId, text, config, hasStructuredRequest);
 }

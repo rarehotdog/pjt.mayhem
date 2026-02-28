@@ -40,6 +40,33 @@ npm run dev
 
 Use `.env.example` as template.
 
+## OpenAI Auth Note
+- OpenAI API uses API key auth (`OPENAI_API_KEY`).
+- ChatGPT subscription OAuth does not replace OpenAI API key billing.
+- This service keeps OpenAI as primary and uses local Claude worker offloading to reduce token cost.
+
+## Cost Optimization Runtime
+- Keep latest stable default:
+  - `OPENAI_MODEL=gpt-5.2`
+  - `OPENAI_MODEL_CANDIDATES=gpt-5.2,gpt-5.1,gpt-5`
+- History window split:
+  - `ASSISTANT_HISTORY_WINDOW_CLOUD=8`
+  - `ASSISTANT_HISTORY_WINDOW_LOCAL=20`
+- Heavy auto-offload policy:
+  - `ASSISTANT_LOCAL_HEAVY_CHARS_THRESHOLD=520`
+  - `ASSISTANT_LOCAL_HEAVY_TOKEN_THRESHOLD=2200`
+  - `ASSISTANT_LOCAL_HEAVY_ENABLE_BOTS=tyler_durden,zhuge_liang,jensen_huang,hemingway_ernest`
+
+## Deploy Guard
+- Validate OpenAI model availability before production deploy:
+```bash
+npm run openai:model:check
+```
+- Deploy with guard:
+```bash
+npm run deploy:prod
+```
+
 ## Operations (market_3h)
 - Default runtime mode: `cloud`
 - Install/refresh launchd job in cloud mode:

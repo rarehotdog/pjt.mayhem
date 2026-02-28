@@ -3,6 +3,17 @@
 ## 1) Default operation mode
 - Recommended default: `cloud`
 - `local_queue` is optional and should be enabled only when Claude Code CLI is available.
+- OpenAI API key auth remains required for cloud path (`OAuth-only API mode is not supported`).
+
+## 1-1) Automatic heavy offloading policy
+- Long/analysis/content requests are automatically routed to `local_queue`.
+- Main controls:
+  - `ASSISTANT_LOCAL_HEAVY_CHARS_THRESHOLD`
+  - `ASSISTANT_LOCAL_HEAVY_TOKEN_THRESHOLD`
+  - `ASSISTANT_LOCAL_HEAVY_ENABLE_BOTS`
+- History windows are split by path:
+  - cloud: `ASSISTANT_HISTORY_WINDOW_CLOUD`
+  - local: `ASSISTANT_HISTORY_WINDOW_LOCAL`
 
 ## 2) launchd install (every 3 hours)
 Cloud mode install (default):
