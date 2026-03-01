@@ -90,7 +90,10 @@ export type OpsFlowId =
   | "hv_cycle_5d"
   | "product_wbs_daily"
   | "cost_guard_daily"
-  | "agent_retrospective_weekly";
+  | "agent_retrospective_weekly"
+  | "autopilot_interrupt_daily"
+  | "psych_excavation_monthly"
+  | "game_score_monthly";
 
 export interface ReminderJobPayload {
   jobId: string;

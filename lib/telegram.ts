@@ -8,6 +8,22 @@ interface TelegramApiResponse<T> {
   result?: T;
   description?: string;
   error_code?: number;
+  parameters?: {
+    migrate_to_chat_id?: number;
+    retry_after?: number;
+  };
+}
+
+class TelegramApiError extends Error {
+  status: number;
+  payload: TelegramApiResponse<unknown>;
+
+  constructor(method: string, status: number, payload: TelegramApiResponse<unknown>) {
+    super(`Telegram API ${method} failed (${status}): ${payload.description ?? "unknown error"}`);
+    this.name = "TelegramApiError";
+    this.status = status;
+    this.payload = payload;
+  }
 }
 
 async function callTelegramApi<T>(
@@ -32,9 +48,7 @@ async function callTelegramApi<T>(
 
   const parsed = (await response.json().catch(() => ({}))) as TelegramApiResponse<T>;
   if (!response.ok || !parsed.ok || !parsed.result) {
-    throw new Error(
-      `Telegram API ${method} failed (${response.status}): ${parsed.description ?? "unknown error"}`
-    );
+    throw new TelegramApiError(method, response.status, parsed as TelegramApiResponse<unknown>);
   }
 
   return parsed.result;
@@ -47,8 +61,8 @@ export async function sendTelegramMessage(input: {
   replyToMessageId?: number;
   disableNotification?: boolean;
 }) {
-  return callTelegramApi<{ message_id: number }>("sendMessage", {
-    chat_id: input.chatId,
+  const botId = input.botId ?? "tyler_durden";
+  const basePayload = {
     text: input.text,
     reply_parameters: input.replyToMessageId
       ? {
@@ -57,7 +71,34 @@ export async function sendTelegramMessage(input: {
         }
       : undefined,
     disable_notification: input.disableNotification ?? false
-  }, input.botId);
+  };
+
+  try {
+    return await callTelegramApi<{ message_id: number }>(
+      "sendMessage",
+      {
+        ...basePayload,
+        chat_id: input.chatId
+      },
+      botId
+    );
+  } catch (caught) {
+    if (
+      caught instanceof TelegramApiError &&
+      caught.payload.error_code === 400 &&
+      typeof caught.payload.parameters?.migrate_to_chat_id === "number"
+    ) {
+      return callTelegramApi<{ message_id: number }>(
+        "sendMessage",
+        {
+          ...basePayload,
+          chat_id: caught.payload.parameters.migrate_to_chat_id
+        },
+        botId
+      );
+    }
+    throw caught;
+  }
 }
 
 export async function getTelegramUpdates(input?: {

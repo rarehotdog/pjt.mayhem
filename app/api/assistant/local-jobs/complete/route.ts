@@ -114,6 +114,22 @@ export async function POST(request: NextRequest) {
           replyToMessageId
         });
 
+        if (completedJob.threadId) {
+          await appendAssistantMessage({
+            botId: completedJob.botId,
+            threadId: completedJob.threadId,
+            role: "assistant",
+            content: messageText,
+            provider: fallback.provider,
+            model: fallback.model,
+            metadata: {
+              localJobId: completedJob.jobId,
+              fallbackFrom: "local_worker",
+              ...(parsed.data.metadata ?? {})
+            }
+          });
+        }
+
         await appendAssistantCostLog({
           botId: completedJob.botId,
           provider: fallback.provider,

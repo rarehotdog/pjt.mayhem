@@ -1,13 +1,13 @@
 import {
   getAssistantBotDisplayName,
+  normalizeAssistantBotId,
   getAssistantTeamDisplayLines,
-  normalizeAssistantBotId
 } from "@/lib/assistant-bots";
 import { getAssistantConfig, isAllowlisted, type AssistantConfig } from "@/lib/assistant-config";
 import {
   buildCompactNewsFallback,
-  buildCompactNewsPrompt,
-  buildCompactNewsTemplate
+  buildWarRoomBriefingPrompt,
+  buildWarRoomBriefingTemplate
 } from "@/lib/assistant-format";
 import { buildMayhemKickoffMessage, buildOpsStatusMessage } from "@/lib/assistant-ops";
 import {
@@ -38,6 +38,7 @@ import {
 import { sendTelegramMessage } from "@/lib/telegram";
 import type {
   AssistantBotId,
+  AssistantCanonicalBotId,
   AssistantProviderName,
   AssistantUpdateSource,
   ReminderJobKind,
@@ -61,6 +62,18 @@ const groupPanelCooldownByChat = new Map<number, number>();
 const groupPanelRoundDedupByChat = new Map<number, string>();
 const LOCAL_QUEUE_NOTICE =
   "이 요청은 로컬 고성능 워커로 넘겨 처리합니다. 완료되면 같은 방에 결과를 이어서 보낼게요.";
+const MISSION_CODES = ["M1", "M2", "M3", "M4", "M5", "Mx"] as const;
+type MissionCode = (typeof MISSION_CODES)[number];
+type FocusWeights = Record<MissionCode, number>;
+const DEFAULT_FOCUS_WEIGHTS: FocusWeights = {
+  M1: 35,
+  M2: 15,
+  M3: 10,
+  M4: 15,
+  M5: 10,
+  Mx: 15
+};
+const THREAD_FOCUS_STATE = new Map<string, FocusWeights>();
 
 const COMMAND_LINES = [
   "/start - 비서 시작 및 안내",
@@ -70,6 +83,7 @@ const COMMAND_LINES = [
   "/summary - 최근 대화 요약",
   "/daily - 모닝 브리핑",
   "/review - 이브닝 리뷰",
+  "/focus - 미션 가중치 설정/조회",
   "/panel - 자동 회의 모드 안내",
   "/check - SENTRY 점검",
   "/cost - 비용 상태 요약",
@@ -112,7 +126,8 @@ function buildCompactBriefingPrompt(
   now = new Date()
 ) {
   if (kind === "morning_plan") {
-    return buildCompactNewsPrompt({
+    return buildWarRoomBriefingPrompt({
+      kind,
       title: "모닝 브리핑 (/daily)",
       now,
       timezone,
@@ -125,7 +140,8 @@ function buildCompactBriefingPrompt(
     });
   }
 
-  return buildCompactNewsPrompt({
+  return buildWarRoomBriefingPrompt({
+    kind,
     title: "이브닝 리뷰 (/review)",
     now,
     timezone,
@@ -142,9 +158,9 @@ function buildCompactBriefingFallback(kind: ReminderJobKind, newsCount: number) 
   return [
     `⚠️ ${buildCompactNewsFallback(kind)}`,
     "",
-    buildCompactNewsTemplate({
-      count: newsCount,
-      mix: "domestic+global"
+    buildWarRoomBriefingTemplate({
+      kind,
+      count: newsCount
     })
   ].join("\n");
 }
@@ -432,6 +448,44 @@ export async function executeAssistantCommand(
     return deps.buildEveningReview(input.botId, input.timezone);
   }
 
+  if (input.command === "/focus") {
+    const arg = extractCommandArgument(input.rawText);
+    if (!arg) {
+      const current = THREAD_FOCUS_STATE.get(input.threadId) ?? DEFAULT_FOCUS_WEIGHTS;
+      return {
+        text: [
+          "현재 Focus Weights",
+          formatFocusWeights(current),
+          "",
+          "사용법: /focus M1:35 M2:15 M4:15 Mx:15 M3:10 M5:10",
+          "입력 값은 합계 100으로 자동 정규화됩니다."
+        ].join("\n"),
+        provider: "none",
+        model: "command"
+      };
+    }
+
+    const parsed = parseFocusWeights(arg);
+    if (!parsed) {
+      return {
+        text: "형식 오류입니다. 예: /focus M1:50 M2:20 M4:15 Mx:10 M3:3 M5:2",
+        provider: "none",
+        model: "command"
+      };
+    }
+
+    THREAD_FOCUS_STATE.set(input.threadId, parsed);
+    return {
+      text: [
+        "Focus Weights 업데이트 완료",
+        formatFocusWeights(parsed),
+        "이 스레드의 다음 응답부터 해당 가중치를 컨텍스트에 반영합니다."
+      ].join("\n"),
+      provider: "none",
+      model: "command"
+    };
+  }
+
   if (input.command === "/panel") {
     return {
       text: buildPanelMessage(input.languageCode),
@@ -622,6 +676,150 @@ function requestsStructuredOutput(text: string) {
 function extractCommandArgument(rawText: string) {
   const tokens = rawText.trim().split(/\s+/);
   return tokens.length > 1 ? tokens.slice(1).join(" ").trim() : "";
+}
+
+function cloneFocus(weights: FocusWeights): FocusWeights {
+  return {
+    M1: weights.M1,
+    M2: weights.M2,
+    M3: weights.M3,
+    M4: weights.M4,
+    M5: weights.M5,
+    Mx: weights.Mx
+  };
+}
+
+function formatFocusWeights(weights: FocusWeights) {
+  return MISSION_CODES.map((code) => `${code}:${weights[code]}`).join(" ");
+}
+
+function normalizeFocusWeights(raw: Partial<Record<MissionCode, number>>): FocusWeights {
+  const safe = MISSION_CODES.map((code) => {
+    const value = Number(raw[code] ?? 0);
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  });
+  const total = safe.reduce((acc, value) => acc + value, 0);
+  if (total <= 0) {
+    return cloneFocus(DEFAULT_FOCUS_WEIGHTS);
+  }
+
+  const scaled = safe.map((value) => (value / total) * 100);
+  const rounded = scaled.map((value) => Math.floor(value));
+  let remain = 100 - rounded.reduce((acc, value) => acc + value, 0);
+  const remainderOrder = scaled
+    .map((value, index) => ({
+      index,
+      remain: value - Math.floor(value)
+    }))
+    .sort((a, b) => b.remain - a.remain);
+
+  let cursor = 0;
+  while (remain > 0 && cursor < remainderOrder.length) {
+    rounded[remainderOrder[cursor].index] += 1;
+    remain -= 1;
+    cursor += 1;
+  }
+
+  return {
+    M1: rounded[0],
+    M2: rounded[1],
+    M3: rounded[2],
+    M4: rounded[3],
+    M5: rounded[4],
+    Mx: rounded[5]
+  };
+}
+
+function parseFocusWeights(text: string): FocusWeights | null {
+  const normalized = text.replaceAll(",", " ");
+  const matches = Array.from(normalized.matchAll(/\b(M[1-5]|Mx)\s*:\s*(\d+(?:\.\d+)?)\b/gi));
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const parsed: Partial<Record<MissionCode, number>> = {};
+  for (const match of matches) {
+    const mission = match[1];
+    const value = Number(match[2]);
+    if (!Number.isFinite(value) || value <= 0) {
+      continue;
+    }
+    if (mission === "Mx" || mission === "mx") {
+      parsed.Mx = value;
+    } else if (mission === "M1" || mission === "m1") {
+      parsed.M1 = value;
+    } else if (mission === "M2" || mission === "m2") {
+      parsed.M2 = value;
+    } else if (mission === "M3" || mission === "m3") {
+      parsed.M3 = value;
+    } else if (mission === "M4" || mission === "m4") {
+      parsed.M4 = value;
+    } else if (mission === "M5" || mission === "m5") {
+      parsed.M5 = value;
+    }
+  }
+
+  const hasAny = MISSION_CODES.some((code) => Number(parsed[code] ?? 0) > 0);
+  if (!hasAny) {
+    return null;
+  }
+  return normalizeFocusWeights(parsed);
+}
+
+function maybeParseFocusFromText(text: string): FocusWeights | null {
+  const lower = text.trim().toLowerCase();
+  if (!lower.startsWith("/focus")) {
+    return null;
+  }
+  const args = extractCommandArgument(text);
+  return parseFocusWeights(args);
+}
+
+function resolveThreadFocusWeights(threadId: string, history: Array<{ content: string }>): FocusWeights {
+  const cached = THREAD_FOCUS_STATE.get(threadId);
+  if (cached) {
+    return cloneFocus(cached);
+  }
+
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const parsed = maybeParseFocusFromText(history[index].content);
+    if (parsed) {
+      THREAD_FOCUS_STATE.set(threadId, parsed);
+      return cloneFocus(parsed);
+    }
+  }
+
+  return cloneFocus(DEFAULT_FOCUS_WEIGHTS);
+}
+
+function buildFocusContext(weights: FocusWeights) {
+  return `[시스템] 현재 Focus Weights: ${formatFocusWeights(weights)}`;
+}
+
+function resolveForcedBotByTag(text: string): AssistantCanonicalBotId | null {
+  const lower = text.toLowerCase();
+  const hasTag = (tag: string) => lower.includes(tag);
+
+  if (hasTag("#risk") || hasTag("#check") || hasTag("#qa")) {
+    return "michael_corleone";
+  }
+  if (hasTag("#interrupt")) {
+    return "jensen_huang";
+  }
+  if (hasTag("#emperor") || text.includes("#제왕")) {
+    return "zhuge_liang";
+  }
+  if (
+    hasTag("#vision") ||
+    hasTag("#antivision") ||
+    hasTag("#anti-vision") ||
+    hasTag("#game") ||
+    hasTag("#score") ||
+    hasTag("#excavation")
+  ) {
+    return "tyler_durden";
+  }
+  return null;
 }
 
 function maybeCreateRoundKey(text: string) {
@@ -865,16 +1063,19 @@ export async function processTelegramUpdate(
   source: AssistantUpdateSource = "webhook",
   botId: AssistantBotId = "tyler_durden"
 ) {
-  const normalizedBotId = normalizeAssistantBotId(botId);
+  const requestedBotId = normalizeAssistantBotId(botId);
   const config = getAssistantConfig();
-  const runtimeBot = config.telegramBots[normalizedBotId];
+  const runtimeBot = config.telegramBots[requestedBotId];
   const message = update.message ?? update.edited_message;
   const text = message?.text?.trim();
   const userId = message?.from?.id;
   const chatId = message?.chat?.id;
+  const forcedBotId = text && !text.startsWith("/") ? resolveForcedBotByTag(text) : null;
+  const effectiveBotId = forcedBotId ?? requestedBotId;
+  const routedByTag = Boolean(forcedBotId && forcedBotId !== requestedBotId);
 
   const reserved = await reserveAssistantUpdate({
-    botId: normalizedBotId,
+    botId: requestedBotId,
     updateId: update.update_id,
     source,
     userId,
@@ -889,7 +1090,7 @@ export async function processTelegramUpdate(
   }
 
   if (!message || !text || !userId || !chatId) {
-    await markAssistantUpdateStatus(update.update_id, "ignored", undefined, normalizedBotId);
+    await markAssistantUpdateStatus(update.update_id, "ignored", undefined, requestedBotId);
     return {
       status: "ignored",
       reason: "unsupported_update"
@@ -897,12 +1098,12 @@ export async function processTelegramUpdate(
   }
 
   const internalBotSource = isInternalBotMessage(message.from, config);
-  if (internalBotSource && normalizedBotId === "tyler_durden") {
+  if (internalBotSource && requestedBotId === "tyler_durden") {
     await markAssistantUpdateStatus(
       update.update_id,
       "ignored",
       "internal_bot_source",
-      normalizedBotId
+      requestedBotId
     );
     return {
       status: "ignored",
@@ -910,7 +1111,7 @@ export async function processTelegramUpdate(
     };
   }
 
-  if (!isPrivateChat(message.chat.type) && normalizedBotId !== "tyler_durden") {
+  if (!isPrivateChat(message.chat.type) && requestedBotId !== "tyler_durden") {
     const isCommand = text.startsWith("/");
     const mentioned = isMentioned(text, runtimeBot.username);
     if (!isCommand && !mentioned) {
@@ -918,7 +1119,7 @@ export async function processTelegramUpdate(
         update.update_id,
         "ignored",
         "group_not_mentioned",
-        normalizedBotId
+        requestedBotId
       );
       return {
         status: "ignored",
@@ -934,7 +1135,7 @@ export async function processTelegramUpdate(
       update.update_id,
       "blocked",
       "allowlist_blocked",
-      normalizedBotId
+      requestedBotId
     );
     return {
       status: "blocked"
@@ -943,18 +1144,18 @@ export async function processTelegramUpdate(
 
   if (!internalBotSource && isRateLimited(userId, config.rateLimitPerMinute)) {
     await sendTelegramMessage({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       chatId,
       text: "요청이 너무 빠르게 들어오고 있어요. 잠시 후 다시 시도해 주세요.",
       replyToMessageId: message.message_id
     });
-    await markAssistantUpdateStatus(update.update_id, "rate_limited", undefined, normalizedBotId);
+    await markAssistantUpdateStatus(update.update_id, "rate_limited", undefined, requestedBotId);
     return {
       status: "rate_limited"
     };
   }
 
-  const threadId = buildThreadId(chatId, normalizedBotId);
+  const threadId = buildThreadId(chatId, requestedBotId);
 
   try {
     const user = await upsertAssistantUser({
@@ -967,7 +1168,7 @@ export async function processTelegramUpdate(
     });
 
     await touchAssistantThread({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       threadId,
       userId: user.userId,
       chatId: user.chatId,
@@ -977,11 +1178,14 @@ export async function processTelegramUpdate(
     const history = await listRecentAssistantMessages(
       threadId,
       config.historyWindowLocal,
-      normalizedBotId
+      requestedBotId
     );
     const historyForCloud = history.slice(-config.historyWindowCloud);
+    const focusWeights = resolveThreadFocusWeights(threadId, history);
+    const focusContext =
+      effectiveBotId === "tyler_durden" ? buildFocusContext(focusWeights) : undefined;
     await appendAssistantMessage({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       threadId,
       role: "user",
       content: text,
@@ -989,7 +1193,10 @@ export async function processTelegramUpdate(
       model: "telegram",
       telegramUpdateId: update.update_id,
       metadata: {
-        source
+        source,
+        requestedBotId,
+        effectiveBotId,
+        routedByTag
       }
     });
 
@@ -1003,7 +1210,7 @@ export async function processTelegramUpdate(
     if (text.startsWith("/")) {
       const command = normalizeCommand(text);
       responsePayload = await executeAssistantCommand({
-        botId: normalizedBotId,
+        botId: requestedBotId,
         command,
         rawText: text,
         userId,
@@ -1015,13 +1222,13 @@ export async function processTelegramUpdate(
       status = commandToStatus(command);
     } else {
       const structuredRequested = requestsStructuredOutput(text);
-      const queueLocal = shouldQueueLocalHeavy(normalizedBotId, text, config, structuredRequested);
+      const queueLocal = shouldQueueLocalHeavy(effectiveBotId, text, config, structuredRequested);
       let queuedLocal = false;
 
       if (queueLocal) {
         try {
           const job = await enqueueAssistantLocalJob({
-            botId: normalizedBotId,
+            botId: effectiveBotId,
             chatId,
             userId,
             threadId,
@@ -1031,6 +1238,9 @@ export async function processTelegramUpdate(
               timezone: user.timezone,
               userText: text,
               history,
+              focusContext,
+              requestedBotId,
+              effectiveBotId,
               originUpdateId: update.update_id,
               replyToMessageId: message.message_id
             }
@@ -1041,7 +1251,10 @@ export async function processTelegramUpdate(
             provider: "none",
             model: "local-queued",
             metadata: {
-              localJobId: job.jobId
+              localJobId: job.jobId,
+              requestedBotId,
+              effectiveBotId,
+              routedByTag
             }
           };
           status = "queued_local";
@@ -1059,7 +1272,7 @@ export async function processTelegramUpdate(
         if (actionType) {
           try {
             const action = await createAssistantActionApproval({
-              requestedByBot: normalizedBotId,
+              requestedByBot: effectiveBotId,
               actionType,
               payload: {
                 chatId,
@@ -1079,16 +1292,16 @@ export async function processTelegramUpdate(
         }
 
         const chatResponse = await buildChatResponse({
-          botId: normalizedBotId,
+          botId: effectiveBotId,
           history: historyForCloud,
           userText: pendingActionId
-            ? `${text}\n\n[시스템] 외부행동은 승인 전 실행 금지. action_id=${pendingActionId}`
-            : text,
+            ? `${focusContext ? `${focusContext}\n\n` : ""}${text}\n\n[시스템] 외부행동은 승인 전 실행 금지. action_id=${pendingActionId}`
+            : `${focusContext ? `${focusContext}\n\n` : ""}${text}`,
           timezone: user.timezone
         });
 
         responsePayload = chatResponse;
-        if (normalizedBotId === "zhuge_liang" && !structuredRequested) {
+        if (effectiveBotId === "zhuge_liang" && !structuredRequested) {
           responsePayload = {
             ...responsePayload,
             text: formatLensJsonToPlainText(responsePayload.text)
@@ -1101,12 +1314,15 @@ export async function processTelegramUpdate(
             text: `${responsePayload.text}\n\n승인 필요: /approve ${pendingActionId}\n거절: /reject ${pendingActionId}`,
             metadata: {
               ...responsePayload.metadata,
-              pendingActionId
+              pendingActionId,
+              requestedBotId,
+              effectiveBotId,
+              routedByTag
             }
           };
         }
 
-        if (!isPrivateChat(message.chat.type) && normalizedBotId === "tyler_durden") {
+        if (!isPrivateChat(message.chat.type) && requestedBotId === "tyler_durden") {
           const now = Date.now();
           const roundKey = maybeCreateRoundKey(text);
           const previousRoundKey = groupPanelRoundDedupByChat.get(chatId);
@@ -1125,7 +1341,10 @@ export async function processTelegramUpdate(
                 ...chatResponse.metadata,
                 panelTriggered: true,
                 originUpdateId: update.update_id,
-                panelRoundKey: roundKey
+                panelRoundKey: roundKey,
+                requestedBotId,
+                effectiveBotId,
+                routedByTag
               }
             };
           }
@@ -1134,26 +1353,31 @@ export async function processTelegramUpdate(
     }
 
     await sendTelegramMessage({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       chatId,
       text: responsePayload.text,
       replyToMessageId: message.message_id
     });
 
     await appendAssistantMessage({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       threadId,
       role: "assistant",
       content: responsePayload.text,
       provider: responsePayload.provider,
       model: responsePayload.model,
       telegramUpdateId: update.update_id,
-      metadata: responsePayload.metadata
+      metadata: {
+        ...(responsePayload.metadata ?? {}),
+        requestedBotId,
+        effectiveBotId,
+        routedByTag
+      }
     });
 
     if (responsePayload.provider !== "none") {
       await appendAssistantCostLog({
-        botId: normalizedBotId,
+        botId: effectiveBotId,
         provider: responsePayload.provider,
         model: responsePayload.model,
         tokensIn: Number((responsePayload.metadata?.tokensIn as number | undefined) ?? 0),
@@ -1163,7 +1387,7 @@ export async function processTelegramUpdate(
       }).catch(() => undefined);
     }
 
-    await markAssistantUpdateStatus(update.update_id, status, undefined, normalizedBotId);
+    await markAssistantUpdateStatus(update.update_id, status, undefined, requestedBotId);
     return {
       status,
       provider: responsePayload.provider
@@ -1172,7 +1396,7 @@ export async function processTelegramUpdate(
     const error = sanitizeErrorMessage(caught);
 
     await appendAssistantMessage({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       threadId,
       role: "assistant",
       content: FALLBACK_REPLY,
@@ -1180,18 +1404,21 @@ export async function processTelegramUpdate(
       model: "error-fallback",
       telegramUpdateId: update.update_id,
       metadata: {
-        error
+        error,
+        requestedBotId,
+        effectiveBotId,
+        routedByTag
       }
     }).catch(() => undefined);
 
     await sendTelegramMessage({
-      botId: normalizedBotId,
+      botId: requestedBotId,
       chatId,
       text: FALLBACK_REPLY,
       replyToMessageId: message.message_id
     }).catch(() => undefined);
 
-    await markAssistantUpdateStatus(update.update_id, "failed", error, normalizedBotId);
+    await markAssistantUpdateStatus(update.update_id, "failed", error, requestedBotId);
     return {
       status: "failed",
       error
@@ -1353,6 +1580,14 @@ export function __private_shouldQueueLocalHeavy(
   hasStructuredRequest: boolean
 ) {
   return shouldQueueLocalHeavy(botId, text, config, hasStructuredRequest);
+}
+
+export function __private_parseFocusWeights(text: string) {
+  return parseFocusWeights(text);
+}
+
+export function __private_resolveForcedBotByTag(text: string) {
+  return resolveForcedBotByTag(text);
 }
 
 export function __private_buildCompactBriefingPrompt(

@@ -42,6 +42,7 @@ npm run dev
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `TELEGRAM_ALLOWED_USER_IDS`, `TELEGRAM_ALLOWED_CHAT_IDS`
+- `TELEGRAM_TYLER_DM_CHAT_ID` (Tyler 전용 DM 대상)
 - `CRON_SECRET`
 - `LOCAL_WORKER_SECRET` (recommended)
 
@@ -96,9 +97,27 @@ MARKET3H_DISPATCH_MODE=local_queue npm run telegram:market3h:launchd -- install
 ```
 
 ## Briefing Format Policy
-- `market_3h`, `/daily`, `/review`, and reminder batches use one compact format:
+- `market_3h`, `/daily`, `/review`, and reminder batches use one War Room compact format:
   - `🧩 뉴스 블록` (domestic+global mixed, default 5 items, each with ★ importance)
   - `📊 종합 데이터 분석 요약` (요약 3 + 전망 2 + 종합 정리)
+  - `/daily`: `GAME STATUS + Top3 + S1/S2 + 15분 액션`
+  - `/review`: `완료현황 + S2 + S4 + Vision/Anti-Vision + 시스템상태 + 내일 Top3`
+
+## War Room Commands
+- `/focus M1:50 M2:20 ...`: 미션 가중치 설정
+- `/focus`: 현재 스레드 가중치 조회
+- 태그 강제 라우팅:
+  - `#vision #antivision #game #score #excavation` → Tyler
+  - `#emperor #제왕` → Zhuge (S4)
+  - `#interrupt` → Jensen
+  - `#risk #check #qa` → Michael
+
+## New Ops Flows
+- `world_knowledge_daily`는 S4(제왕의 수업)로 재정의됨
+- `autopilot_interrupt_daily` (hourly check, KST 11~21 once/day)
+- `psych_excavation_monthly` (월 1일 08:00 KST)
+- `game_score_monthly` (월말 22:00 KST)
+- Tyler DM 실패 시 MAYHEM 그룹 fallback 전송
 
 ## Separation Rule
 - `apps/unmyeong-snap`: viral product app only

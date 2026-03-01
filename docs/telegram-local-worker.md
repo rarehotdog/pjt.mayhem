@@ -45,6 +45,7 @@ Prerequisites:
 - Claude Code CLI installed (`claude` command available)
 - Claude login completed (`claude /login`)
 - `.env.local` has `APP_BASE_URL`, `LOCAL_WORKER_SECRET` (or `CRON_SECRET`)
+- War Room monthly DM flows use `TELEGRAM_TYLER_DM_CHAT_ID` (if missing, MAYHEM group fallback)
 
 Install launchd in `local_queue` mode:
 ```bash

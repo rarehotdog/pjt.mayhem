@@ -14,8 +14,25 @@ export function buildThreadId(chatId: number, botId: AssistantBotId = "tyler_dur
   return `telegram:${normalizeAssistantBotId(botId)}:${chatId}`;
 }
 
+function toSafeErrorText(input: unknown): string {
+  if (input instanceof Error) {
+    return input.message;
+  }
+  if (typeof input === "string") {
+    return input;
+  }
+  if (typeof input === "number" || typeof input === "boolean" || input === null || input === undefined) {
+    return String(input);
+  }
+  try {
+    return JSON.stringify(input);
+  } catch {
+    return Object.prototype.toString.call(input);
+  }
+}
+
 export function sanitizeErrorMessage(input: unknown): string {
-  const message = input instanceof Error ? input.message : String(input);
+  const message = toSafeErrorText(input);
   return TOKEN_PATTERNS.reduce((acc, pattern) => acc.replace(pattern, "[REDACTED]"), message);
 }
 

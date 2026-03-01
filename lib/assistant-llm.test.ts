@@ -38,6 +38,15 @@ describe("assistant-llm fallback", () => {
     const prompt = __private_buildSystemPrompt("Asia/Seoul", "zhuge_liang");
     expect(prompt).toContain("제갈량");
     expect(prompt).toContain("JSON/객체 스키마로 답하지 않습니다");
+    expect(prompt).toContain("[Cybernetic Role: 감지기]");
+    expect(prompt).toContain("[GAME BOARD — Tyler's 2026]");
+  });
+
+  it("builds tyler prompt with mission game board", () => {
+    const prompt = __private_buildSystemPrompt("Asia/Seoul", "tyler_durden");
+    expect(prompt).toContain("M1 SCHOLAR");
+    expect(prompt).toContain("M5 EMPEROR");
+    expect(prompt).toContain("Vision vs Anti-Vision");
   });
 
   it("returns openai result when primary succeeds", async () => {

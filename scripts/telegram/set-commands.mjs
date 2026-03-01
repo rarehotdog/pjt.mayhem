@@ -59,6 +59,7 @@ const commands = [
   { command: "summary", description: "최근 대화 요약" },
   { command: "daily", description: "모닝 브리핑" },
   { command: "review", description: "이브닝 리뷰" },
+  { command: "focus", description: "미션 가중치 설정/조회" },
   { command: "panel", description: "자동 회의 모드 안내" },
   { command: "check", description: "SENTRY 점검" },
   { command: "cost", description: "비용 상태 요약" },

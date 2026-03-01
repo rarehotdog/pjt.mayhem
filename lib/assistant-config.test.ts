@@ -43,6 +43,8 @@ function baseConfig(overrides: Partial<AssistantConfig> = {}): AssistantConfig {
     },
     telegramAllowedUserIds: new Set<number>([111]),
     telegramAllowedChatIds: new Set<number>([222]),
+    telegramMayhemChatId: undefined,
+    telegramTylerDmChatId: undefined,
     openAiApiKey: "openai",
     openAiModel: "gpt-5.2",
     openAiModelCandidates: ["gpt-5.2", "gpt-5.1", "gpt-5"],
@@ -79,6 +81,14 @@ describe("assistant-config", () => {
       allowNegative: true
     });
     expect(Array.from(parsed)).toEqual([10, -100123]);
+  });
+
+  it("adds supergroup-compatible alias for legacy negative chat ids", () => {
+    const parsed = __private_parseIdSet("-5068790852", {
+      allowNegative: true
+    });
+    expect(parsed.has(-5068790852)).toBe(true);
+    expect(parsed.has(-1005068790852)).toBe(true);
   });
 
   it("parses and deduplicates string lists", () => {
@@ -158,6 +168,17 @@ describe("assistant-config", () => {
       process.env.TELEGRAM_BOT_SENTRY_TOKEN = backup.TELEGRAM_BOT_SENTRY_TOKEN;
       process.env.TELEGRAM_BOT_SENTRY_SECRET = backup.TELEGRAM_BOT_SENTRY_SECRET;
       process.env.TELEGRAM_BOT_SENTRY_USERNAME = backup.TELEGRAM_BOT_SENTRY_USERNAME;
+    }
+  });
+
+  it("parses TELEGRAM_TYLER_DM_CHAT_ID", () => {
+    const backup = process.env.TELEGRAM_TYLER_DM_CHAT_ID;
+    try {
+      process.env.TELEGRAM_TYLER_DM_CHAT_ID = "123456789";
+      const config = getAssistantConfig();
+      expect(config.telegramTylerDmChatId).toBe(123456789);
+    } finally {
+      process.env.TELEGRAM_TYLER_DM_CHAT_ID = backup;
     }
   });
 });

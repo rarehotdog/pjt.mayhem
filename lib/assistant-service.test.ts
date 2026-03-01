@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   __private_buildCompactBriefingPrompt,
   __private_formatLensJsonToPlainText,
+  __private_parseFocusWeights,
   __private_requestsStructuredOutput,
+  __private_resolveForcedBotByTag,
   __private_shouldQueueLocalHeavy,
   executeAssistantCommand
 } from "@/lib/assistant-service";
@@ -232,6 +234,20 @@ describe("assistant commands", () => {
     expect(result.text).toContain("gmat_mba_daily");
   });
 
+  it("/focus updates mission weights", async () => {
+    const result = await executeAssistantCommand({
+      botId: "tyler_durden",
+      command: "/focus",
+      rawText: "/focus M1:50 M2:20 M4:15 Mx:10 M3:3 M5:2",
+      userId: 123,
+      threadId: "telegram:1",
+      timezone: "Asia/Seoul"
+    });
+
+    expect(result.text).toContain("Focus Weights 업데이트 완료");
+    expect(result.text).toContain("M1:");
+  });
+
   it("/mayhem returns kickoff message", async () => {
     const result = await executeAssistantCommand({
       botId: "tyler_durden",
@@ -326,5 +342,19 @@ describe("assistant commands", () => {
       false
     );
     expect(result).toBe(false);
+  });
+
+  it("parses focus weights and normalizes to 100", () => {
+    const parsed = __private_parseFocusWeights("M1:50 M2:20 M4:15 Mx:10 M3:3 M5:2");
+    expect(parsed).not.toBeNull();
+    const total = Object.values(parsed ?? {}).reduce((acc, value) => acc + value, 0);
+    expect(total).toBe(100);
+  });
+
+  it("routes force tags to mapped bots", () => {
+    expect(__private_resolveForcedBotByTag("#risk 확인")).toBe("michael_corleone");
+    expect(__private_resolveForcedBotByTag("#interrupt 지금")).toBe("jensen_huang");
+    expect(__private_resolveForcedBotByTag("#제왕 브리핑")).toBe("zhuge_liang");
+    expect(__private_resolveForcedBotByTag("#vision 체크")).toBe("tyler_durden");
   });
 });

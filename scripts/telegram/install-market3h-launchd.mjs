@@ -117,6 +117,46 @@ function run(command) {
   });
 }
 
+function runOutput(command) {
+  return execSync(command, {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  }).trim();
+}
+
+function escapeShellArg(value) {
+  return `'${String(value).replace(/'/g, `'\\''`)}'`;
+}
+
+function getGuiDomain() {
+  const uid = Number(process.getuid?.() ?? 0);
+  return `gui/${uid}`;
+}
+
+function getServiceTarget() {
+  return `${getGuiDomain()}/${LABEL}`;
+}
+
+function bootoutIfExists() {
+  try {
+    run(`launchctl bootout '${getServiceTarget()}'`);
+  } catch {
+    // ignore
+  }
+}
+
+function bootstrap() {
+  run(`launchctl bootstrap '${getGuiDomain()}' ${escapeShellArg(PLIST_PATH)}`);
+}
+
+function enableService() {
+  run(`launchctl enable '${getServiceTarget()}'`);
+}
+
+function printService() {
+  return runOutput(`launchctl print '${getServiceTarget()}'`);
+}
+
 function generateOnly() {
   const plist = buildPlist();
   process.stdout.write(plist);
@@ -129,13 +169,9 @@ function install() {
 
   fs.writeFileSync(PLIST_PATH, buildPlist(), "utf8");
 
-  try {
-    run(`launchctl unload '${PLIST_PATH}'`);
-  } catch {
-    // ignore
-  }
-
-  run(`launchctl load '${PLIST_PATH}'`);
+  bootoutIfExists();
+  bootstrap();
+  enableService();
   console.log(`[PASS] installed launchd job: ${LABEL}`);
   console.log(`[INFO] plist: ${PLIST_PATH}`);
   console.log(`[INFO] dispatch mode: ${DISPATCH_MODE}`);
@@ -143,11 +179,7 @@ function install() {
 }
 
 function uninstall() {
-  try {
-    run(`launchctl unload '${PLIST_PATH}'`);
-  } catch {
-    // ignore
-  }
+  bootoutIfExists();
 
   if (fs.existsSync(PLIST_PATH)) {
     fs.unlinkSync(PLIST_PATH);
@@ -157,10 +189,12 @@ function uninstall() {
 }
 
 function status() {
+  const target = getServiceTarget();
   try {
-    run(`launchctl list | rg '${LABEL}'`);
+    printService();
+    console.log(`[INFO] ${target} loaded in launchd`);
   } catch {
-    console.log(`[INFO] ${LABEL} not found in launchctl list`);
+    console.log(`[INFO] ${target} not found in launchctl`);
   }
 
   const plistExists = fs.existsSync(PLIST_PATH);

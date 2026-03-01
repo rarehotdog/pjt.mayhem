@@ -1,11 +1,79 @@
 import { getAssistantBotDisplayName, normalizeAssistantBotId } from "@/lib/assistant-bots";
-import { getAssistantConfig } from "@/lib/assistant-config";
+import { getAssistantConfig, type AssistantConfig } from "@/lib/assistant-config";
 import { buildCompactNewsPrompt } from "@/lib/assistant-format";
 import { generateAssistantReply } from "@/lib/assistant-llm";
-import { appendAssistantCostLog, enqueueAssistantLocalJob } from "@/lib/assistant-store";
+import {
+  appendAssistantCostLog,
+  enqueueAssistantLocalJob,
+  markAssistantUpdateStatus,
+  reserveAssistantUpdate
+} from "@/lib/assistant-store";
 import { sendTelegramMessage } from "@/lib/telegram";
 import type { AssistantBotId, AssistantDispatchMode, OpsFlowId } from "@/lib/assistant-types";
-import { getLocalDateParts } from "@/lib/assistant-utils";
+import { getLocalDateParts, sanitizeErrorMessage } from "@/lib/assistant-utils";
+
+const AUTOPILOT_INTERRUPTS = [
+  "태현님, 지금 뭘 피하고 있어?",
+  "지난 2시간을 녹화했다면, 원하는 삶을 살고 있다고 보일까?",
+  "지금 이 행동은 Anti-Vision 쪽인가, Vision 쪽인가?",
+  "오늘 가장 중요한데 안 중요한 척하는 게 뭐야?",
+  "오늘 가장 살아있다고 느낀 순간은?",
+  "이건 정체성 보호인가, 진짜 원하는 건가?"
+];
+
+const MONTHLY_EXCAVATION_QUESTIONS = [
+  "① 지난 달, 가장 참고 살았던 불만족은?",
+  "② 반복 불평했지만 안 바꾼 것 3가지는?",
+  "③ 각 불평에서 행동만 보면 실제로 무엇을 원했나?",
+  "④ 존경하는 사람에게 차마 말 못할 현재 삶의 진실은?",
+  "⑤ Anti-Vision 업데이트가 필요한가?",
+  "⑥ 이번 달 가장 큰 승리와 가장 큰 회피는?"
+];
+
+const S4_WEEKDAY_CURRICULUM: Record<string, { topic: string; question: string }> = {
+  Mon: {
+    topic: "전략·의사결정",
+    question: "이 결정에서 내 편향은 뭐지?"
+  },
+  Tue: {
+    topic: "리더십·권력",
+    question: "내가 권력을 원하는 진짜 이유는?"
+  },
+  Wed: {
+    topic: "기술·시스템",
+    question: "이 기술이 세상을 어떻게 재편하는가?"
+  },
+  Thu: {
+    topic: "부·금융",
+    question: "돈은 도구인가, 스코어보드인가?"
+  },
+  Fri: {
+    topic: "설득·커뮤니케이션",
+    question: "내 글이 진실을 전하는가, 이미지를 전하는가?"
+  },
+  Sat: {
+    topic: "역사·문명",
+    question: "제국은 왜 무너지는가? 내 시스템은?"
+  },
+  Sun: {
+    topic: "철학·의식",
+    question: "나는 누구인가? 이 모든 목표 너머에 뭐가 있는가?"
+  }
+};
+
+const OPS_FLOW_UPDATE_CODE: Record<OpsFlowId, number> = {
+  market_3h: 11,
+  gmat_mba_daily: 12,
+  finance_event_daily: 13,
+  world_knowledge_daily: 14,
+  hv_cycle_5d: 15,
+  product_wbs_daily: 16,
+  cost_guard_daily: 17,
+  agent_retrospective_weekly: 18,
+  autopilot_interrupt_daily: 41,
+  psych_excavation_monthly: 42,
+  game_score_monthly: 43
+};
 
 export const OPS_FLOW_IDS: OpsFlowId[] = [
   "market_3h",
@@ -15,7 +83,10 @@ export const OPS_FLOW_IDS: OpsFlowId[] = [
   "hv_cycle_5d",
   "product_wbs_daily",
   "cost_guard_daily",
-  "agent_retrospective_weekly"
+  "agent_retrospective_weekly",
+  "autopilot_interrupt_daily",
+  "psych_excavation_monthly",
+  "game_score_monthly"
 ];
 
 interface OpsFlowSpec {
@@ -50,10 +121,10 @@ const OPS_FLOW_SPECS: Record<OpsFlowId, OpsFlowSpec> = {
   },
   world_knowledge_daily: {
     id: "world_knowledge_daily",
-    ownerBotId: "tyler_durden",
-    title: "World-Class 지식 카드",
+    ownerBotId: "zhuge_liang",
+    title: "S4 제왕의 수업",
     cadence: "Daily (Vercel cron)",
-    purpose: "리더십/전략/시스템 사고 핵심 전달"
+    purpose: "주간 커리큘럼 기반 제왕 수업 5줄 브리핑"
   },
   hv_cycle_5d: {
     id: "hv_cycle_5d",
@@ -82,11 +153,39 @@ const OPS_FLOW_SPECS: Record<OpsFlowId, OpsFlowSpec> = {
     title: "에이전트 자가개선 회고",
     cadence: "Weekly (Vercel cron)",
     purpose: "주간 오작동/개선안 정리"
+  },
+  autopilot_interrupt_daily: {
+    id: "autopilot_interrupt_daily",
+    ownerBotId: "jensen_huang",
+    title: "Autopilot Interrupt",
+    cadence: "Hourly check (11:00~21:00 KST, once/day)",
+    purpose: "회피 패턴을 끊는 랜덤 인터럽트 1회 전송"
+  },
+  psych_excavation_monthly: {
+    id: "psych_excavation_monthly",
+    ownerBotId: "tyler_durden",
+    title: "월간 심리 발굴",
+    cadence: "Monthly (1st day 08:00 KST)",
+    purpose: "Tyler DM 6문항 심리 발굴 프로토콜"
+  },
+  game_score_monthly: {
+    id: "game_score_monthly",
+    ownerBotId: "tyler_durden",
+    title: "월말 GAME SCORE CARD",
+    cadence: "Monthly (last day 22:00 KST)",
+    purpose: "M1~Mx 진행률 및 다음 달 Boss Fight 정리"
   }
 };
 
-function resolveMayhemChatId() {
-  const config = getAssistantConfig();
+function deterministicHash(input: string) {
+  let hash = 0;
+  for (const ch of input) {
+    hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  }
+  return hash;
+}
+
+function resolveMayhemChatId(config = getAssistantConfig()) {
 
   if (typeof config.telegramMayhemChatId === "number") {
     return config.telegramMayhemChatId;
@@ -97,8 +196,48 @@ function resolveMayhemChatId() {
   return typeof groupChat === "number" ? groupChat : undefined;
 }
 
+function resolveTylerDmChatId(config = getAssistantConfig()) {
+  if (typeof config.telegramTylerDmChatId === "number") {
+    return config.telegramTylerDmChatId;
+  }
+  return undefined;
+}
+
 function pad2(value: number) {
   return String(value).padStart(2, "0");
+}
+
+function getLocalWeekday(timezone: string, now: Date) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    weekday: "short"
+  }).format(now);
+}
+
+function isLastDayOfLocalMonth(timezone: string, now: Date) {
+  const today = getLocalDateParts(timezone, now).dateKey;
+  const tomorrow = getLocalDateParts(timezone, new Date(now.getTime() + 24 * 60 * 60 * 1000)).dateKey;
+  return today.slice(0, 7) !== tomorrow.slice(0, 7);
+}
+
+function resolveAutopilotTargetHour(dateKey: string) {
+  return 11 + (deterministicHash(dateKey) % 11);
+}
+
+function buildWorldKnowledgePrompt(now: Date, timezone: string) {
+  const weekday = getLocalWeekday(timezone, now);
+  const curriculum = S4_WEEKDAY_CURRICULUM[weekday] ?? S4_WEEKDAY_CURRICULUM.Sun;
+
+  return [
+    "업무: S4 제왕의 수업 — 단계 상승 훈련 (자아 발달 5→7단계)",
+    `오늘 커리큘럼: ${curriculum.topic}`,
+    `핵심 질문: \"${curriculum.question}\"`,
+    "출력 규칙:",
+    "- 5줄 이내",
+    "- 핵심 인물 1명 + 교훈 1줄 + 질문 1개",
+    "- 마지막 줄은 내일 행동 1개",
+    "- 과장/단정 금지"
+  ].join("\n");
 }
 
 function buildOpsPrompt(flow: OpsFlowId, now: Date, timezone: string) {
@@ -116,6 +255,10 @@ function buildOpsPrompt(flow: OpsFlowId, now: Date, timezone: string) {
         "마지막 종합 정리는 시장 시사점 중심으로 압축"
       ]
     });
+  }
+
+  if (flow === "world_knowledge_daily") {
+    return buildWorldKnowledgePrompt(now, timezone);
   }
 
   const local = getLocalDateParts(timezone, now);
@@ -143,10 +286,7 @@ function buildOpsPrompt(flow: OpsFlowId, now: Date, timezone: string) {
       "업무: 금융 지식/이벤트 데일리 카드",
       "형식: 개념 1개 + 오늘 이벤트 2개 + 투자 유의 1줄"
     ],
-    world_knowledge_daily: [
-      "업무: 세계 최고 수준 실행을 위한 지식 카드",
-      "형식: 원칙 1개 + 사례 1개 + 오늘 적용법 1개"
-    ],
+    world_knowledge_daily: ["업무: S4 제왕의 수업", "형식: 인물 1명 + 교훈 1줄 + 질문 1개"],
     hv_cycle_5d: [
       "업무: 헤픈인벨리 5일 발행 준비",
       "형식: 주제 1개 + 훅 1개 + CTA 1개 + 필요한 팩트체크 1개"
@@ -162,6 +302,15 @@ function buildOpsPrompt(flow: OpsFlowId, now: Date, timezone: string) {
     agent_retrospective_weekly: [
       "업무: 에이전트 자가개선 회고",
       "형식: 이번주 문제 3개 + 개선 실험 2개 + 다음주 측정지표 1개"
+    ],
+    autopilot_interrupt_daily: [
+      "업무: Autopilot Interrupt",
+      "형식: 질문 1개 + 즉시 행동 1개 제안 (3줄 이내)"
+    ],
+    psych_excavation_monthly: ["업무: 월간 심리 발굴", "형식: 6문항 고정 질문 전송"],
+    game_score_monthly: [
+      "업무: 월말 GAME SCORE CARD",
+      "형식: 미션 진행률 + LEVEL UP + BOSS MISS + 다음달 Boss Fight"
     ]
   };
 
@@ -216,6 +365,343 @@ export function buildMayhemKickoffMessage(timezone: string) {
   ].join("\n");
 }
 
+async function reserveFlowExecutionSlot(
+  flowId: OpsFlowId,
+  botId: AssistantBotId,
+  now: Date,
+  timezone: string
+) {
+  const local = getLocalDateParts(timezone, now);
+  const dateNumber = Number(local.dateKey.replaceAll("-", ""));
+  const updateId = dateNumber * 100 + OPS_FLOW_UPDATE_CODE[flowId];
+
+  try {
+    const reserved = await reserveAssistantUpdate({
+      botId,
+      updateId,
+      source: "manual",
+      status: "received"
+    });
+    return {
+      reserved: reserved.reserved,
+      updateId
+    };
+  } catch {
+    return {
+      reserved: true,
+      updateId
+    };
+  }
+}
+
+async function markFlowExecutionStatus(
+  updateId: number,
+  botId: AssistantBotId,
+  status: string,
+  error?: string
+) {
+  await markAssistantUpdateStatus(updateId, status, error, botId).catch(() => undefined);
+}
+
+async function sendTylerDirectWithFallback(options: {
+  config: AssistantConfig;
+  botId: AssistantBotId;
+  text: string;
+  disableNotification?: boolean;
+}) {
+  const dmChatId = resolveTylerDmChatId(options.config);
+  const mayhemChatId = resolveMayhemChatId(options.config);
+
+  if (typeof dmChatId === "number") {
+    try {
+      await sendTelegramMessage({
+        botId: options.botId,
+        chatId: dmChatId,
+        text: options.text,
+        disableNotification: options.disableNotification ?? true
+      });
+      return {
+        chatId: dmChatId,
+        delivery: "dm" as const
+      };
+    } catch (caught) {
+      if (typeof mayhemChatId === "number") {
+        await sendTelegramMessage({
+          botId: options.botId,
+          chatId: mayhemChatId,
+          text: `⚠️ Tyler DM 전송 실패로 그룹 fallback 전송\n\n${options.text}`,
+          disableNotification: options.disableNotification ?? true
+        });
+        return {
+          chatId: mayhemChatId,
+          delivery: "group_fallback" as const,
+          fallbackReason: sanitizeErrorMessage(caught)
+        };
+      }
+      throw caught;
+    }
+  }
+
+  if (typeof mayhemChatId === "number") {
+    await sendTelegramMessage({
+      botId: options.botId,
+      chatId: mayhemChatId,
+      text: `⚠️ TELEGRAM_TYLER_DM_CHAT_ID 미설정으로 그룹 fallback 전송\n\n${options.text}`,
+      disableNotification: options.disableNotification ?? true
+    });
+    return {
+      chatId: mayhemChatId,
+      delivery: "group_fallback" as const,
+      fallbackReason: "missing_tyler_dm_chat_id"
+    };
+  }
+
+  throw new Error("No Tyler DM or MAYHEM fallback chat is configured.");
+}
+
+async function runAutopilotInterrupt(options: {
+  flow: OpsFlowSpec;
+  now: Date;
+  config: AssistantConfig;
+  source: string;
+}) {
+  const local = getLocalDateParts(options.config.assistantTimezone, options.now);
+
+  if (local.hour < 11 || local.hour > 21) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: "outside_kst_window",
+      source: options.source
+    };
+  }
+
+  const targetHour = resolveAutopilotTargetHour(local.dateKey);
+  if (local.hour !== targetHour) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: `waiting_target_hour_${targetHour}`,
+      source: options.source
+    };
+  }
+
+  const reserved = await reserveFlowExecutionSlot(
+    options.flow.id,
+    options.flow.ownerBotId,
+    options.now,
+    options.config.assistantTimezone
+  );
+  if (!reserved.reserved) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: "already_sent_today",
+      source: options.source
+    };
+  }
+
+  const question = AUTOPILOT_INTERRUPTS[deterministicHash(local.dateKey) % AUTOPILOT_INTERRUPTS.length];
+  const text = [
+    `⚡ Autopilot Interrupt (${local.dateKey})`,
+    `• ${question}`,
+    "• 답변은 3줄 이내, 지금 바로 할 행동 1개까지 적어줘."
+  ].join("\n");
+
+  try {
+    const delivery = await sendTylerDirectWithFallback({
+      config: options.config,
+      botId: options.flow.ownerBotId,
+      text,
+      disableNotification: true
+    });
+
+    await markFlowExecutionStatus(reserved.updateId, options.flow.ownerBotId, "processed");
+
+    return {
+      ok: true,
+      flow: options.flow.id,
+      ownerBotId: options.flow.ownerBotId,
+      chatId: delivery.chatId,
+      source: options.source,
+      dispatchMode: "cloud" as const,
+      sentAt: new Date().toISOString(),
+      delivery: delivery.delivery,
+      targetHour
+    };
+  } catch (caught) {
+    const error = sanitizeErrorMessage(caught);
+    await markFlowExecutionStatus(reserved.updateId, options.flow.ownerBotId, "failed", error);
+    throw new Error(`autopilot interrupt failed: ${error}`);
+  }
+}
+
+async function runPsychExcavationMonthly(options: {
+  flow: OpsFlowSpec;
+  now: Date;
+  config: AssistantConfig;
+  source: string;
+}) {
+  const local = getLocalDateParts(options.config.assistantTimezone, options.now);
+  if (local.day !== 1) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: "not_first_day_of_month",
+      source: options.source
+    };
+  }
+
+  const reserved = await reserveFlowExecutionSlot(
+    options.flow.id,
+    options.flow.ownerBotId,
+    options.now,
+    options.config.assistantTimezone
+  );
+  if (!reserved.reserved) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: "already_sent_this_month_slot",
+      source: options.source
+    };
+  }
+
+  const text = [`🧠 월간 심리 발굴 (${local.year}-${pad2(local.month)})`, ...MONTHLY_EXCAVATION_QUESTIONS].join(
+    "\n"
+  );
+
+  try {
+    const delivery = await sendTylerDirectWithFallback({
+      config: options.config,
+      botId: options.flow.ownerBotId,
+      text,
+      disableNotification: true
+    });
+    await markFlowExecutionStatus(reserved.updateId, options.flow.ownerBotId, "processed");
+
+    return {
+      ok: true,
+      flow: options.flow.id,
+      ownerBotId: options.flow.ownerBotId,
+      chatId: delivery.chatId,
+      source: options.source,
+      dispatchMode: "cloud" as const,
+      sentAt: new Date().toISOString(),
+      delivery: delivery.delivery
+    };
+  } catch (caught) {
+    const error = sanitizeErrorMessage(caught);
+    await markFlowExecutionStatus(reserved.updateId, options.flow.ownerBotId, "failed", error);
+    throw new Error(`monthly excavation failed: ${error}`);
+  }
+}
+
+async function runGameScoreMonthly(options: {
+  flow: OpsFlowSpec;
+  now: Date;
+  config: AssistantConfig;
+  source: string;
+}) {
+  if (!isLastDayOfLocalMonth(options.config.assistantTimezone, options.now)) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: "not_last_day_of_month",
+      source: options.source
+    };
+  }
+
+  const reserved = await reserveFlowExecutionSlot(
+    options.flow.id,
+    options.flow.ownerBotId,
+    options.now,
+    options.config.assistantTimezone
+  );
+  if (!reserved.reserved) {
+    return {
+      ok: true,
+      flow: options.flow.id,
+      skipped: true,
+      reason: "already_sent_this_month_slot",
+      source: options.source
+    };
+  }
+
+  const local = getLocalDateParts(options.config.assistantTimezone, options.now);
+  const prompt = [
+    `작업: 월말 GAME SCORE CARD 생성 (${local.year}-${pad2(local.month)})`,
+    "언어: 한국어",
+    "형식 고정:",
+    "🎮 TYLER'S GAME SCORE — 2026년 [N]월",
+    "🏆 MISSION STATUS",
+    "M1 SCHOLAR / M2 WARRIOR / M3 MERCHANT / M4 BUILDER / M5 EMPEROR / Mx VOICE 각각 진행률 바",
+    "📈 이번 달 LEVEL UP",
+    "📉 이번 달 BOSS MISS",
+    "🧠 DAN KOE CHECK (Anti-Vision 횟수, Vision 횟수, 정체성 변화 신호)",
+    "🎯 다음 달 BOSS FIGHT 3개",
+    "규칙:",
+    "- 숫자/사실이 불확실하면 TODO-VERIFY로 표시",
+    "- 과장/단정 금지",
+    "- 22:00 이브닝 회고에 바로 붙일 수 있도록 간결하게 작성"
+  ].join("\n");
+
+  try {
+    const response = await generateAssistantReply({
+      botId: options.flow.ownerBotId,
+      history: [],
+      userText: prompt,
+      timezone: options.config.assistantTimezone,
+      maxOutputTokens: 520,
+      temperature: 0.2
+    });
+
+    const delivery = await sendTylerDirectWithFallback({
+      config: options.config,
+      botId: options.flow.ownerBotId,
+      text: response.outputText,
+      disableNotification: true
+    });
+
+    if (response.provider !== "none") {
+      await appendAssistantCostLog({
+        botId: options.flow.ownerBotId,
+        provider: response.provider,
+        model: response.model,
+        tokensIn: response.tokensIn ?? 0,
+        tokensOut: response.tokensOut ?? 0,
+        estimatedCostUsd: response.estimatedCostUsd ?? 0,
+        path: `ops:${options.flow.id}`
+      }).catch(() => undefined);
+    }
+
+    await markFlowExecutionStatus(reserved.updateId, options.flow.ownerBotId, "processed");
+
+    return {
+      ok: true,
+      flow: options.flow.id,
+      ownerBotId: options.flow.ownerBotId,
+      chatId: delivery.chatId,
+      source: options.source,
+      dispatchMode: "cloud" as const,
+      provider: response.provider,
+      model: response.model,
+      sentAt: new Date().toISOString(),
+      delivery: delivery.delivery
+    };
+  } catch (caught) {
+    const error = sanitizeErrorMessage(caught);
+    await markFlowExecutionStatus(reserved.updateId, options.flow.ownerBotId, "failed", error);
+    throw new Error(`game score monthly failed: ${error}`);
+  }
+}
+
 export async function runOpsFlow(options: {
   flow: OpsFlowId;
   chatId?: number;
@@ -227,8 +713,36 @@ export async function runOpsFlow(options: {
   const now = options.now ?? new Date();
   const flow = OPS_FLOW_SPECS[options.flow];
   const mode = options.mode ?? "cloud";
+  const source = options.source ?? "ops_endpoint";
 
-  const chatId = options.chatId ?? resolveMayhemChatId();
+  if (flow.id === "autopilot_interrupt_daily") {
+    return runAutopilotInterrupt({
+      flow,
+      now,
+      config,
+      source
+    });
+  }
+
+  if (flow.id === "psych_excavation_monthly") {
+    return runPsychExcavationMonthly({
+      flow,
+      now,
+      config,
+      source
+    });
+  }
+
+  if (flow.id === "game_score_monthly") {
+    return runGameScoreMonthly({
+      flow,
+      now,
+      config,
+      source
+    });
+  }
+
+  const chatId = options.chatId ?? resolveMayhemChatId(config);
   if (!chatId) {
     throw new Error("No target chat found. Set TELEGRAM_MAYHEM_CHAT_ID or TELEGRAM_ALLOWED_CHAT_IDS.");
   }
@@ -256,7 +770,7 @@ export async function runOpsFlow(options: {
       flow: flow.id,
       ownerBotId: flow.ownerBotId,
       chatId,
-      source: options.source ?? "ops_endpoint",
+      source,
       dispatchMode: mode,
       jobId: job.jobId,
       sentAt: new Date().toISOString()
@@ -301,7 +815,7 @@ export async function runOpsFlow(options: {
     provider: response.provider,
     model: response.model,
     dispatchMode: mode,
-    source: options.source ?? "ops_endpoint",
+    source,
     sentAt: new Date().toISOString()
   };
 }

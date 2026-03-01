@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCompactNewsPrompt,
+  buildWarRoomBriefingPrompt,
+  buildWarRoomBriefingTemplate,
   buildCompactNewsTemplate,
   resolveCompactNewsCount
 } from "@/lib/assistant-format";
@@ -33,5 +35,29 @@ describe("assistant-format compact news", () => {
     expect(prompt).toContain("중요도(★)");
     expect(prompt).toContain("종합 데이터 분석 요약");
     expect(prompt).toContain("내일 체크포인트");
+  });
+
+  it("builds morning war room template with game status", () => {
+    const template = buildWarRoomBriefingTemplate({
+      kind: "morning_plan",
+      count: 5
+    });
+    expect(template).toContain("🎮 GAME STATUS");
+    expect(template).toContain("🎯 오늘 Top3");
+    expect(template).toContain("⚡ 지금 15분 액션");
+  });
+
+  it("builds evening war room prompt with vision check", () => {
+    const prompt = buildWarRoomBriefingPrompt({
+      kind: "evening_review",
+      title: "이브닝 리뷰 (/review)",
+      now: new Date("2026-02-28T13:35:00.000Z"),
+      timezone: "Asia/Seoul",
+      count: 5,
+      contextFocus: ["마감 리스크", "다음 날 체크포인트"]
+    });
+    expect(prompt).toContain("🧠 Vision vs Anti-Vision 체크");
+    expect(prompt).toContain("Mission 코드는 M1/M2/M3/M4/M5/Mx");
+    expect(prompt).toContain("뉴스 개수: 정확히 5개");
   });
 });

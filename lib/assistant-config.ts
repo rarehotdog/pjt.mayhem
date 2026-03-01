@@ -34,6 +34,7 @@ export interface AssistantConfig {
   telegramAllowedUserIds: Set<number>;
   telegramAllowedChatIds: Set<number>;
   telegramMayhemChatId?: number;
+  telegramTylerDmChatId?: number;
   openAiApiKey: string;
   openAiModel: string;
   openAiModelCandidates: string[];
@@ -115,7 +116,21 @@ function parseIdSet(
     .filter((value) => Number.isInteger(value))
     .filter((value) => (allowNegative ? value !== 0 : value > 0));
 
-  return new Set(parsed);
+  const result = new Set(parsed);
+  if (allowNegative) {
+    for (const value of parsed) {
+      const raw = String(value);
+      if (!raw.startsWith("-") || raw.startsWith("-100")) {
+        continue;
+      }
+      const migrated = Number(`-100${raw.slice(1)}`);
+      if (Number.isSafeInteger(migrated)) {
+        result.add(migrated);
+      }
+    }
+  }
+
+  return result;
 }
 
 function parsePositiveInt(rawValue: string | undefined, fallback: number): number {
@@ -222,6 +237,7 @@ export function getAssistantConfig(): AssistantConfig {
       allowNegative: true
     }),
     telegramMayhemChatId: parseChatId(process.env.TELEGRAM_MAYHEM_CHAT_ID),
+    telegramTylerDmChatId: parseChatId(process.env.TELEGRAM_TYLER_DM_CHAT_ID),
     openAiApiKey: process.env.OPENAI_API_KEY ?? "",
     openAiModel,
     openAiModelCandidates,
@@ -396,6 +412,7 @@ export function getAssistantConfigSummary(config = getAssistantConfig()) {
       chats: config.telegramAllowedChatIds.size
     },
     mayhemChatId: config.telegramMayhemChatId ?? null,
+    tylerDmChatId: config.telegramTylerDmChatId ?? null,
     localWorkerSecret: maskConfigValue(config.localWorkerSecret),
     workerAuthConfigured: Boolean(config.localWorkerSecret)
   };

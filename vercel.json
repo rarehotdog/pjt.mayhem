@@ -43,6 +43,18 @@
     {
       "path": "/api/telegram/ops/run/agent_retrospective_weekly",
       "schedule": "0 11 * * 0"
+    },
+    {
+      "path": "/api/telegram/ops/run/autopilot_interrupt_daily",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/psych_excavation_monthly",
+      "schedule": "5 23 * * *"
+    },
+    {
+      "path": "/api/telegram/ops/run/game_score_monthly",
+      "schedule": "5 13 * * *"
     }
   ]
 }
