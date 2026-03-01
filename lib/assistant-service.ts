@@ -1002,11 +1002,17 @@ function shouldQueueLocalHeavy(
   botId: AssistantBotId,
   text: string,
   config: AssistantConfig,
-  hasStructuredRequest: boolean
+  hasStructuredRequest: boolean,
+  chatType?: string
 ) {
   const normalizedBotId = normalizeAssistantBotId(botId);
 
   if (!config.localWorkerSecret) {
+    return false;
+  }
+
+  // Group chats should stay responsive; queueing is limited to private chats.
+  if (!isPrivateChat(chatType)) {
     return false;
   }
 
@@ -1222,7 +1228,13 @@ export async function processTelegramUpdate(
       status = commandToStatus(command);
     } else {
       const structuredRequested = requestsStructuredOutput(text);
-      const queueLocal = shouldQueueLocalHeavy(effectiveBotId, text, config, structuredRequested);
+      const queueLocal = shouldQueueLocalHeavy(
+        effectiveBotId,
+        text,
+        config,
+        structuredRequested,
+        message.chat.type
+      );
       let queuedLocal = false;
 
       if (queueLocal) {
@@ -1577,9 +1589,10 @@ export function __private_shouldQueueLocalHeavy(
   botId: AssistantBotId,
   text: string,
   config: AssistantConfig,
-  hasStructuredRequest: boolean
+  hasStructuredRequest: boolean,
+  chatType?: string
 ) {
-  return shouldQueueLocalHeavy(botId, text, config, hasStructuredRequest);
+  return shouldQueueLocalHeavy(botId, text, config, hasStructuredRequest, chatType);
 }
 
 export function __private_parseFocusWeights(text: string) {

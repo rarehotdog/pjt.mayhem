@@ -315,7 +315,8 @@ describe("assistant commands", () => {
       "zhuge_liang",
       "시장 리서치 딥다이브 보고서 작성해줘",
       config,
-      false
+      false,
+      "private"
     );
     expect(result).toBe(true);
   });
@@ -326,7 +327,8 @@ describe("assistant commands", () => {
       "zhuge_liang",
       "json으로 응답해줘",
       config,
-      true
+      true,
+      "private"
     );
     expect(result).toBe(false);
   });
@@ -339,7 +341,20 @@ describe("assistant commands", () => {
       "alfred_sentry",
       "긴 글로 아티클 써줘",
       config,
-      false
+      false,
+      "private"
+    );
+    expect(result).toBe(false);
+  });
+
+  it("does not queue local heavy in group chats", () => {
+    const config = buildConfig();
+    const result = __private_shouldQueueLocalHeavy(
+      "zhuge_liang",
+      "시장 리서치 딥다이브 보고서 작성해줘",
+      config,
+      false,
+      "group"
     );
     expect(result).toBe(false);
   });
